@@ -1,0 +1,263 @@
+{
+    "$comment": [
+        "Single source of truth for dev-setup. See README.md for the full reference.",
+        "'user' holds the knobs meant for routine editing.",
+        "'advanced' holds shared/derived values - correct by default, change only with reason."
+    ],
+    "user": {
+        "install": {
+            "git": true,
+            "node": true,
+            "python": true,
+            "vscodeSettings": true,
+            "devcontainerDefaults": true,
+            "mcpServers": true
+        },
+        "git": {
+            "installDir": "",
+            "forcePortable": false,
+            "userName": "",
+            "userEmail": ""
+        },
+        "python": {
+            "version": "3.14"
+        },
+        "vscode": {
+            "profiles": [
+                "stable",
+                "insiders"
+            ],
+            "extensions": {
+                "manage": true,
+                "uninstallBlocked": false,
+                "install": [
+                    "charliermarsh.ruff",
+                    "davidanson.vscode-markdownlint",
+                    "dbaeumer.vscode-eslint",
+                    "editorconfig.editorconfig",
+                    "esbenp.prettier-vscode",
+                    "github.vscode-github-actions",
+                    "github.vscode-pull-request-github",
+                    "ms-azuretools.vscode-containers",
+                    "ms-python.debugpy",
+                    "ms-python.python",
+                    "ms-python.vscode-pylance",
+                    "ms-vscode-remote.remote-containers",
+                    "ms-vscode.makefile-tools",
+                    "ms-vscode.powershell",
+                    "redhat.vscode-yaml",
+                    "streetsidesoftware.code-spell-checker",
+                    "yzhang.markdown-all-in-one"
+                ],
+                "block": [
+                    "eg2.vscode-npm-script",
+                    "hookyqr.beautify",
+                    "ms-azuretools.vscode-docker",
+                    "ms-python.autopep8",
+                    "ms-python.black-formatter",
+                    "ms-python.flake8",
+                    "ms-python.isort",
+                    "ms-python.pylint",
+                    "ms-vscode.node-debug2",
+                    "ms-vscode.powershell-preview",
+                    "ms-vscode.vscode-typescript-tslint-plugin"
+                ]
+            },
+            "settings": {
+                "diffEditor.maxComputationTime": 0,
+                "explorer.confirmDelete": true,
+                "explorer.confirmDragAndDrop": false,
+                "explorer.confirmPasteNative": false,
+                "git.autofetch": true,
+                "git.confirmSync": false,
+                "git.enableSmartCommit": true,
+                "git.ignoreRebaseWarning": true,
+                "git.replaceTagsWhenPull": true,
+                "githubPullRequests.pullBranch": "never",
+                "makefile.configureOnOpen": true,
+                "markdown.extension.completion.enabled": true,
+                "markdown.extension.preview.autoShowPreviewToSide": true,
+                "python.analysis.typeCheckingMode": "strict",
+                "redhat.telemetry.enabled": false,
+                "remote.autoForwardPortsSource": "hybrid",
+                "security.workspace.trust.banner": "always",
+                "security.workspace.trust.startupPrompt": "always",
+                "settingsSync.ignoredSettings": [
+                    "yaml.schemas"
+                ],
+                "settingsSync.keybindingsPerPlatform": false,
+                "terminal.integrated.enableMultiLinePasteWarning": "never",
+                "terminal.integrated.enablePersistentSessions": false,
+                "terminal.integrated.persistentSessionReviveProcess": "never",
+                "update.showReleaseNotes": false,
+                "window.confirmSaveUntitledWorkspace": false,
+                "workbench.startupEditor": "none",
+                "yaml.disableSchemaDetection": [
+                    "**/.github/workflows/*.yml",
+                    "**/.github/workflows/*.yaml",
+                    "**/.gitea/workflows/*.yml",
+                    "**/.gitea/workflows/*.yaml",
+                    "**/.forgejo/workflows/*.yml",
+                    "**/.forgejo/workflows/*.yaml"
+                ]
+            }
+        },
+        "mcp": {
+            "manage": true,
+            "removeBlocked": false,
+            "servers": {
+                "io.github.github/github-mcp-server": {
+                    "type": "http",
+                    "url": "https://api.githubcopilot.com/mcp/"
+                },
+                "microsoftdocs/mcp": {
+                    "type": "http",
+                    "url": "https://learn.microsoft.com/api/mcp"
+                },
+                "microsoft/markitdown": {
+                    "type": "stdio",
+                    "command": "uvx",
+                    "args": [
+                        "markitdown-mcp@0.0.1a4"
+                    ]
+                },
+                "microsoft/playwright-mcp": {
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": [
+                        "@playwright/mcp@0.0.79"
+                    ]
+                }
+            },
+            "inputs": [],
+            "block": []
+        },
+        "devcontainers": {
+            "dockerAccess": "outside-of-docker",
+            "baseImage": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+            "remoteUser": "vscode",
+            "features": {
+                "ghcr.io/devcontainers/features/common-utils:2": {
+                    "installZsh": true,
+                    "configureZshAsDefaultShell": false,
+                    "upgradePackages": true
+                },
+                "ghcr.io/devcontainers/features/git:1": {},
+                "ghcr.io/devcontainers/features/github-cli:1": {}
+            },
+            "extensions": [
+                "GitHub.copilot",
+                "GitHub.copilot-chat",
+                "GitHub.vscode-pull-request-github",
+                "GitHub.vscode-github-actions",
+                "eamodio.gitlens",
+                "editorconfig.editorconfig",
+                "redhat.vscode-yaml",
+                "timonwong.shellcheck"
+            ],
+            "settings": {
+                "dev.containers.copyGitConfig": true,
+                "dev.containers.gitCredentialHelperConfigLocation": "system",
+                "dev.containers.cacheVolume": true,
+                "dev.containers.logLevel": "info"
+            }
+        }
+    },
+    "advanced": {
+        "git": {
+            "defaultInstallDir": "%USERPROFILE%\\PortableGit",
+            "portableReleaseApiUrl": "https://api.github.com/repos/git-for-windows/git/releases/latest",
+            "portableAssetPattern": "PortableGit-*64-bit.7z.exe",
+            "homebrewFormula": "git",
+            "homebrewInstallUrl": "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",
+            "linuxbrewShellenv": "/home/linuxbrew/.linuxbrew/bin/brew",
+            "credential": {
+                "windows": {
+                    "helper": "manager",
+                    "credentialStore": "wincredman",
+                    "guiPrompt": false
+                },
+                "macos": {
+                    "helper": "osxkeychain"
+                },
+                "linux": {
+                    "helper": "manager"
+                }
+            }
+        },
+        "python": {
+            "wingetPackageId": "Python.Python.{version}",
+            "windowsInstallRoot": "%LOCALAPPDATA%\\Programs\\Python",
+            "uvInstallUrl": {
+                "windows": "https://astral.sh/uv/install.ps1",
+                "unix": "https://astral.sh/uv/install.sh"
+            },
+            "uvWindowsPath": "%USERPROFILE%\\.local\\bin\\uv.exe"
+        },
+        "node": {
+            "wingetPackageId": "OpenJS.NodeJS.LTS",
+            "homebrewFormula": "node",
+            "windowsSearchPaths": [
+                "%ProgramFiles%\\nodejs\\node.exe",
+                "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}*\\node-v*\\node.exe"
+            ]
+        },
+        "vscode": {
+            "profileDirectories": {
+                "windows": {
+                    "stable": "%APPDATA%\\Code\\User",
+                    "insiders": "%APPDATA%\\Code - Insiders\\User"
+                },
+                "macos": {
+                    "stable": "$HOME/Library/Application Support/Code/User",
+                    "insiders": "$HOME/Library/Application Support/Code - Insiders/User"
+                },
+                "linux": {
+                    "stable": "$HOME/.config/Code/User",
+                    "insiders": "$HOME/.config/Code - Insiders/User"
+                }
+            },
+            "managedSettingKeys": {
+                "gitPath": "git.path",
+                "pythonInterpreter": "python.defaultInterpreterPath"
+            },
+            "extensionCli": {
+                "stable": "code",
+                "insiders": "code-insiders"
+            },
+            "mcpFileName": "mcp.json",
+            "settings": {
+                "azureFunctions.showProjectWarning": false
+            }
+        },
+        "devcontainers": {
+            "dockerAccessFeatures": {
+                "outside-of-docker": {
+                    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+                        "moby": false,
+                        "installDockerBuildx": true,
+                        "installDockerComposeSwitch": true
+                    }
+                },
+                "in-docker": {
+                    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+                        "moby": false,
+                        "installDockerBuildx": true,
+                        "installDockerComposeSwitch": true
+                    }
+                },
+                "none": {}
+            },
+            "settingKeys": {
+                "features": "dev.containers.defaultFeatures",
+                "extensions": "dev.containers.defaultExtensions"
+            },
+            "snippet": {
+                "file": "jsonc.json",
+                "name": "Dev container (Ubuntu base)",
+                "prefix": "devcontainer"
+            }
+        }
+    }
+}

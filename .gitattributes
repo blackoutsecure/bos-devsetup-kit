@@ -1,0 +1,11 @@
+# Normalize line endings in the repository, regardless of the checkout platform.
+* text=auto eol=lf
+
+# Windows batch requires CRLF to be safe across shells.
+*.cmd text eol=crlf
+
+*.ps1 text eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.json text eol=lf
+*.md  text eol=lf
