@@ -46,7 +46,7 @@ case "$os" in
 			printf 'Node.js/npm unavailable and Homebrew could not be installed. Install Node.js LTS from https://nodejs.org/.\n' >&2
 			exit 1
 		fi
-		devsetup_status install Node.js "installing '$formula' via Homebrew"
+		devsetup_status install Node.js "installing '$formula' via Homebrew (live output below, may take a few minutes)"
 		NONINTERACTIVE=1 brew install "$formula" < /dev/null
 		;;
 	MINGW*|MSYS*|CYGWIN*)

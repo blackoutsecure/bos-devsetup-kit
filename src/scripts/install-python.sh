@@ -46,7 +46,7 @@ if [[ -z "$python_command" ]]; then
 	if ! command -v uv >/dev/null 2>&1; then
 		devsetup_status install uv "installing to \$HOME/.local/bin (user-local, no admin, no GUI)" >&2
 		uv_installer="$HOME/.uv-install.sh"
-		curl -LsSf "$uv_install_url" -o "$uv_installer"
+		curl -L --progress-bar -Sf "$uv_install_url" -o "$uv_installer"
 		"${BASH:-bash}" "$uv_installer" >&2
 		rm -f "$uv_installer"
 		export PATH="$HOME/.local/bin:$PATH"

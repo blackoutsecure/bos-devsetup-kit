@@ -99,6 +99,7 @@ devsetup_ensure_homebrew() {
 
 	brew_install_url="$(devsetup_config advanced.git.homebrewInstallUrl https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 	brew_shellenv="$(devsetup_config advanced.git.linuxbrewShellenv /home/linuxbrew/.linuxbrew/bin/brew)"
+	devsetup_status install Homebrew "bootstrapping via official installer (no existing output for a few seconds is normal)" >&2
 	NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$brew_install_url")"
 	if [[ ! -x "$brew_shellenv" ]]; then
 		return 1

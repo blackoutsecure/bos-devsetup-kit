@@ -44,7 +44,7 @@ if [[ -z "$command_path" ]]; then
 		printf 'PowerShell is unavailable and Homebrew could not be installed. Install it from https://learn.microsoft.com/powershell/.\n' >&2
 		exit 1
 	fi
-	devsetup_status install PowerShell "installing '$formula' via Homebrew" >&2
+	devsetup_status install PowerShell "installing '$formula' via Homebrew (live output below, may take a few minutes)" >&2
 	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
 	command_path="$(command -v pwsh || true)"
 fi

@@ -44,7 +44,7 @@ if [[ -z "$php_command" ]]; then
 		printf 'PHP is unavailable and Homebrew could not be installed. Install PHP from https://www.php.net/downloads.php.\n' >&2
 		exit 1
 	fi
-	devsetup_status install PHP "installing '$formula' via Homebrew" >&2
+	devsetup_status install PHP "installing '$formula' via Homebrew (live output below, may take a few minutes)" >&2
 	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
 	php_command="$(command -v php || true)"
 fi

@@ -63,7 +63,7 @@ if [[ $git_present -eq 0 ]]; then
 			exit 1
 			;;
 		Linux)
-			devsetup_status install Git "installing '$formula' via Homebrew"
+			devsetup_status install Git "installing '$formula' via Homebrew (live output below, may take a few minutes)"
 			if ! devsetup_ensure_homebrew; then
 				printf 'Git is unavailable and Homebrew could not be installed.\n' >&2
 				exit 1
