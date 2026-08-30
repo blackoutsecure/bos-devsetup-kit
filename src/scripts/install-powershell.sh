@@ -45,7 +45,7 @@ if [[ -z "$command_path" ]]; then
 		exit 1
 	fi
 	devsetup_status install PowerShell "installing '$formula' via Homebrew" >&2
-	brew install "$formula" >&2
+	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
 	command_path="$(command -v pwsh || true)"
 fi
 

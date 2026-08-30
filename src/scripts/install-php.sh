@@ -45,7 +45,7 @@ if [[ -z "$php_command" ]]; then
 		exit 1
 	fi
 	devsetup_status install PHP "installing '$formula' via Homebrew" >&2
-	brew install "$formula" >&2
+	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
 	php_command="$(command -v php || true)"
 fi
 

@@ -68,7 +68,7 @@ if [[ $git_present -eq 0 ]]; then
 				printf 'Git is unavailable and Homebrew could not be installed.\n' >&2
 				exit 1
 			fi
-			brew install "$formula"
+			NONINTERACTIVE=1 brew install "$formula" < /dev/null
 			devsetup_status found Git "$(git --version) at $(command -v git)"
 			;;
 		*)

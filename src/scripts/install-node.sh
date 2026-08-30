@@ -47,7 +47,7 @@ case "$os" in
 			exit 1
 		fi
 		devsetup_status install Node.js "installing '$formula' via Homebrew"
-		brew install "$formula"
+		NONINTERACTIVE=1 brew install "$formula" < /dev/null
 		;;
 	MINGW*|MSYS*|CYGWIN*)
 		printf 'Node.js/npm unavailable in this shell. Run setup.cmd on Windows.\n' >&2
