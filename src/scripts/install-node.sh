@@ -42,8 +42,8 @@ fi
 
 case "$os" in
 	Darwin|Linux)
-		if ! command -v brew >/dev/null 2>&1; then
-			printf 'Node.js/npm unavailable and Homebrew is not installed. Install Node.js LTS from https://nodejs.org/.\n' >&2
+		if ! devsetup_ensure_homebrew; then
+			printf 'Node.js/npm unavailable and Homebrew could not be installed. Install Node.js LTS from https://nodejs.org/.\n' >&2
 			exit 1
 		fi
 		devsetup_status install Node.js "installing '$formula' via Homebrew"

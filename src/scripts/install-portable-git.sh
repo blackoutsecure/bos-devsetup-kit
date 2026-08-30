@@ -64,11 +64,9 @@ if [[ $git_present -eq 0 ]]; then
 			;;
 		Linux)
 			devsetup_status install Git "installing '$formula' via Homebrew"
-			if ! command -v brew >/dev/null 2>&1; then
-				brew_install_url="$(devsetup_config advanced.git.homebrewInstallUrl https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-				brew_shellenv="$(devsetup_config advanced.git.linuxbrewShellenv /home/linuxbrew/.linuxbrew/bin/brew)"
-				NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$brew_install_url")"
-				eval "$("$brew_shellenv" shellenv)"
+			if ! devsetup_ensure_homebrew; then
+				printf 'Git is unavailable and Homebrew could not be installed.\n' >&2
+				exit 1
 			fi
 			brew install "$formula"
 			devsetup_status found Git "$(git --version) at $(command -v git)"

@@ -37,6 +37,8 @@ if (-not $PythonVersion) {
 $configureVSCode = (-not $SkipVSCodeSettings) -and (Get-DevSetupValue $config "user.install.vscodeSettings" $true)
 $gitExe = $null
 $pythonExe = $null
+$phpExe = $null
+$powerShellExe = $null
 
 if ($Audit) {
     Write-Host "Auditing (detect only - nothing will be installed or changed):"
@@ -65,6 +67,18 @@ if (Get-DevSetupValue $config "user.install.python" $true) {
     Write-DevSetupStatus skip "Python" "user.install.python is false"
 }
 
+if (Get-DevSetupValue $config "user.install.php" $true) {
+    $phpExe = & (Join-Path $scripts "install-php.ps1") -Audit:$Audit | Select-Object -Last 1
+} else {
+    Write-DevSetupStatus skip "PHP" "user.install.php is false"
+}
+
+if (Get-DevSetupValue $config "user.install.powershell" $true) {
+    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit | Select-Object -Last 1
+} else {
+    Write-DevSetupStatus skip "PowerShell" "user.install.powershell is false"
+}
+
 if (-not $configureVSCode) {
     $reason = if ($SkipVSCodeSettings) { "-SkipVSCodeSettings was passed" } else { "user.install.vscodeSettings is false" }
     Write-DevSetupStatus skip "vscode" $reason
@@ -86,6 +100,8 @@ if ($configureVSCode) {
     if ($pythonExe) {
         $arguments = @((Join-Path $PSScriptRoot "src\configure-vscode.py"), "--config", $configPath, "--python-path", $pythonExe)
         if ($gitExe -and (Test-Path $gitExe)) { $arguments += @("--git-path", $gitExe) }
+        if ($phpExe -and (Test-Path $phpExe)) { $arguments += @("--php-path", $phpExe) }
+        if ($powerShellExe -and (Test-Path $powerShellExe)) { $arguments += @("--powershell-path", $powerShellExe) }
         if ($Audit) { $arguments += "--dry-run" }
         & $pythonExe $arguments
     } else {

@@ -74,6 +74,28 @@ else
 	devsetup_status skip Python "user.install.python is false"
 fi
 
+php_command=""
+if devsetup_enabled user.install.php; then
+	if [[ $audit -eq 1 ]]; then
+		"${BASH:-bash}" "$scripts/install-php.sh" --audit
+	else
+		php_command="$("${BASH:-bash}" "$scripts/install-php.sh" --print-path)"
+	fi
+else
+	devsetup_status skip PHP "user.install.php is false"
+fi
+
+powershell_command=""
+if devsetup_enabled user.install.powershell; then
+	if [[ $audit -eq 1 ]]; then
+		"${BASH:-bash}" "$scripts/install-powershell.sh" --audit
+	else
+		powershell_command="$("${BASH:-bash}" "$scripts/install-powershell.sh" --print-path)"
+	fi
+else
+	devsetup_status skip PowerShell "user.install.powershell is false"
+fi
+
 if [[ -z "$python_command" ]]; then
 	for candidate in python3 python; do
 		if command -v "$candidate" >/dev/null 2>&1 && "$candidate" --version >/dev/null 2>&1; then
@@ -88,6 +110,12 @@ if devsetup_enabled user.install.vscodeSettings; then
 		vscode_args=(--config "$DEVSETUP_CONFIG_FILE" --python-path "$python_command")
 		if [[ -n "$git_command" ]]; then
 			vscode_args+=(--git-path "$git_command")
+		fi
+		if [[ -n "$php_command" ]]; then
+			vscode_args+=(--php-path "$php_command")
+		fi
+		if [[ -n "$powershell_command" ]]; then
+			vscode_args+=(--powershell-path "$powershell_command")
 		fi
 		if [[ $audit -eq 1 ]]; then
 			"$python_command" "$script_dir/src/configure-vscode.py" "${vscode_args[@]}" --dry-run

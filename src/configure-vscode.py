@@ -111,7 +111,13 @@ def profile_targets(config: dict) -> list[tuple[str, Path]]:
     ]
 
 
-def build_settings(config: dict, git_path: str | None, python_path: str | None) -> dict:
+def build_settings(
+    config: dict,
+    git_path: str | None,
+    python_path: str | None,
+    php_path: str | None,
+    powershell_path: str | None,
+) -> dict:
     settings: dict[str, Any] = {}
     settings.update(get(config, "advanced.vscode.settings", {}))
     settings[
@@ -158,6 +164,22 @@ def build_settings(config: dict, git_path: str | None, python_path: str | None) 
                 "python.defaultInterpreterPath",
             )
         ] = python_path
+    if php_path:
+        settings[
+            get(
+                config,
+                "advanced.vscode.managedSettingKeys.phpValidator",
+                "php.validate.executablePath",
+            )
+        ] = php_path
+    if powershell_path:
+        settings[
+            get(
+                config,
+                "advanced.vscode.managedSettingKeys.powerShellAdditionalExePaths",
+                "powershell.powerShellAdditionalExePaths",
+            )
+        ] = [powershell_path]
 
     # User overrides win over everything above.
     settings.update(get(config, "user.vscode.settings", {}))
@@ -605,6 +627,11 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--git-path", help="value for the managed git.path setting")
     parser.add_argument("--python-path", help="value for the managed interpreter setting")
+    parser.add_argument("--php-path", help="value for the managed PHP validator setting")
+    parser.add_argument(
+        "--powershell-path",
+        help="executable path for the managed PowerShell discovery setting",
+    )
     parser.add_argument(
         "--dry-run", action="store_true", help="report changes without writing files"
     )
@@ -618,7 +645,9 @@ def main() -> int:
         status("skip", "vscode", "user.install.vscodeSettings is false")
         return 0
 
-    settings = build_settings(config, args.git_path, args.python_path)
+    settings = build_settings(
+        config, args.git_path, args.python_path, args.php_path, args.powershell_path
+    )
     snippet = build_snippet(config)
 
     targets = [d for d in profile_dirs(config) if d.is_dir()]

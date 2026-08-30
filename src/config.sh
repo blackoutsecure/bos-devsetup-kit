@@ -89,6 +89,24 @@ devsetup_enabled() {
 	[[ "$(devsetup_config "$1" "${2:-true}")" == "true" ]]
 }
 
+devsetup_ensure_homebrew() {
+	if command -v brew >/dev/null 2>&1; then
+		return 0
+	fi
+	if [[ "$(uname -s 2>/dev/null)" != "Linux" ]]; then
+		return 1
+	fi
+
+	brew_install_url="$(devsetup_config advanced.git.homebrewInstallUrl https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+	brew_shellenv="$(devsetup_config advanced.git.linuxbrewShellenv /home/linuxbrew/.linuxbrew/bin/brew)"
+	NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$brew_install_url")"
+	if [[ ! -x "$brew_shellenv" ]]; then
+		return 1
+	fi
+	eval "$("$brew_shellenv" shellenv)"
+	command -v brew >/dev/null 2>&1
+}
+
 # One audit line per component so a run reads as a report.
 #   found   - already present, nothing to do
 #   install - something is about to change

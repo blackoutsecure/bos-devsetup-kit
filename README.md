@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, and Python per-user, then applies VS Code settings that follow you through
+Installs Git, Node.js, Python, PHP, and PowerShell per-user, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -19,6 +19,11 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 | Windows  | PowerShell 5.1+. `winget` for Node.js/Python (falls back to `uv` for Python). |
 | macOS    | Xcode Command Line Tools for Git. Homebrew for Node.js.                       |
 | Linux    | Homebrew is installed under `$HOME` automatically if missing.                 |
+| Platform        | Needs                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, and PowerShell 7 (falls back to `uv` for Python).     |
+| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, and PowerShell.                              |
+| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, and PowerShell. |
 
 No administrator or root access is required at any point. WSL is never installed or invoked.
 
@@ -129,6 +134,13 @@ src/scripts/  one installer per tool, each runnable on its own
 | `.github/bos-universal-config.json` | Repo-specific Blackout Secure automation config.                                                 |
 | `.github/dependabot.yml`            | Repo-specific dependency-update config.                                                          |
 | `.github/CODEOWNERS`                | Repo-specific review ownership.                                                                  |
+| Path                              | Contents                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| root                              | The entrypoints you actually type. Nothing else.                                                 |
+| `config/dev-setup.config.json`    | Single source of truth for every setting. Kept at the top level because it is the file you edit. |
+| `src/config.ps1`, `src/config.sh` | Config loader, dotted-path lookup, status reporter, shared helpers.                              |
+| `src/configure-vscode.py`         | Cross-platform VS Code settings, extensions, and MCP applier.                                    |
+| `src/scripts/install-*.{ps1,sh}`  | Per-tool install steps invoked by the runners.                                                   |
 
 Every script resolves the repository root from its own location, so the runners and the individual
 installers work from any working directory.
@@ -145,6 +157,39 @@ config file degrades to the documented default rather than failing the run.
 ### User-editable recommendations
 
 These are the supported knobs for routine use. They are safe to edit in a fork or personal copy.
+These are the supported knobs for routine use. They are safe to edit in a fork or personal copy.
+| Setting                                   | Default                                                                         | Purpose                                                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `user.install.git`                        | `true`                                                                          | Run the Git installer step.                                                                                                     |
+| `user.install.node`                       | `true`                                                                          | Run the Node.js/npm step.                                                                                                       |
+| `user.install.python`                     | `true`                                                                          | Run the Python step.                                                                                                            |
+| `user.install.php`                        | `true`                                                                          | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                |
+| `user.install.powershell`                 | `true`                                                                          | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                       |
+| `user.install.vscodeSettings`             | `true`                                                                          | Apply any VS Code settings at all.                                                                                              |
+| `user.install.devcontainerDefaults`       | `true`                                                                          | Include the Dev Containers keys and snippet.                                                                                    |
+| `user.install.mcpServers`                 | `true`                                                                          | Reconcile MCP servers in `mcp.json`.                                                                                            |
+| `user.git.installDir`                     | `""`                                                                            | Windows PortableGit location. Empty uses `advanced.git.defaultInstallDir`.                                                      |
+| `user.git.forcePortable`                  | `false`                                                                         | Install PortableGit even when a system Git is on `PATH`. Left `false`, an existing Git is detected and the download is skipped. |
+| `user.git.userName`                       | `""`                                                                            | Applied via `git config --global user.name` when non-empty.                                                                     |
+| `user.git.userEmail`                      | `""`                                                                            | Applied via `git config --global user.email` when non-empty.                                                                    |
+| `user.python.version`                     | `"3.14"`                                                                        | Single source of truth for Windows winget and macOS/Linux `uv`.                                                                 |
+| `user.vscode.profiles`                    | `["stable","insiders"]`                                                         | Which VS Code profiles receive settings and extensions.                                                                         |
+| `user.vscode.settings`                    | curated set, see below                                                          | Settings merged verbatim into `settings.json`. Wins over everything else.                                                       |
+| `user.vscode.extensions.manage`           | `true`                                                                          | Install/report extensions at all.                                                                                               |
+| `user.vscode.extensions.install`          | 17 extensions                                                                   | Installed if missing, via the VS Code CLI.                                                                                      |
+| `user.vscode.extensions.block`            | 11 extensions                                                                   | Never installed. Reported as `[warn]` if already present.                                                                       |
+| `user.vscode.extensions.uninstallBlocked` | `false`                                                                         | When `true`, blocked extensions that are installed are removed instead of just reported.                                        |
+| `user.mcp.manage`                         | `true`                                                                          | Reconcile MCP servers at all.                                                                                                   |
+| `user.mcp.servers`                        | 4 servers                                                                       | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                          |
+| `user.mcp.inputs`                         | `[]`                                                                            | `${input:id}` definitions. Required by any server that references one.                                                          |
+| `user.mcp.block`                          | `[]`                                                                            | Server IDs that should not be configured. Reported as `[warn]` if present.                                                      |
+| `user.mcp.removeBlocked`                  | `false`                                                                         | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                   |
+| `user.devcontainers.dockerAccess`         | `"outside-of-docker"`                                                           | `outside-of-docker`, `in-docker`, or `none`.                                                                                    |
+| `user.devcontainers.baseImage`            | `mcr.microsoft.com/devcontainers/base:ubuntu-24.04`                             | Image used by the `devcontainer` snippet.                                                                                       |
+| `user.devcontainers.remoteUser`           | `"vscode"`                                                                      | `remoteUser` emitted by the snippet.                                                                                            |
+| `user.devcontainers.features`             | common-utils, git, github-cli                                                   | Features always installed. The Docker feature is added from `dockerAccess`.                                                     |
+| `user.devcontainers.extensions`           | Copilot, PR, Actions, GitLens, EditorConfig, YAML, ShellCheck                   | Extensions always installed in a container.                                                                                     |
+| `user.devcontainers.settings`             | `copyGitConfig`, `gitCredentialHelperConfigLocation`, `cacheVolume`, `logLevel` | Remaining `dev.containers.*` keys.                                                                                              |
 
 | Setting                                     | Default                                                                                                                                                                | Purpose                                                                                                                               |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -225,6 +270,45 @@ are not meant for day-to-day editing.
 | `advanced.devcontainers.snippet.file`                               | `jsonc.json`                               | Snippet file written under `snippets/`.                                                         |
 | `advanced.devcontainers.snippet.name`                               | `Dev container (Ubuntu base)`              | Snippet entry name.                                                                             |
 | `advanced.devcontainers.snippet.prefix`                             | `devcontainer`                             | Text typed to expand the snippet.                                                               |
+| Setting                                                           | Default                                    | Purpose                                                                                         |
+| ----------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `advanced.git.defaultInstallDir`                                  | `%USERPROFILE%\PortableGit`                | Fallback when `user.git.installDir` is empty.                                                   |
+| `advanced.git.portableReleaseApiUrl`                              | git-for-windows latest release API         | Where the PortableGit build is discovered.                                                      |
+| `advanced.git.portableAssetPattern`                               | `PortableGit-*64-bit.7z.exe`               | Which release asset to download.                                                                |
+| `advanced.git.homebrewFormula`                                    | `git`                                      | Formula used on macOS/Linux.                                                                    |
+| `advanced.git.homebrewInstallUrl`                                 | Homebrew `install.sh`                      | Used only when Homebrew is missing on Linux.                                                    |
+| `advanced.git.linuxbrewShellenv`                                  | `/home/linuxbrew/.linuxbrew/bin/brew`      | Path used to load brew into the shell after install.                                            |
+| `advanced.git.credential.windows.helper`                          | `manager`                                  | Git Credential Manager.                                                                         |
+| `advanced.git.credential.windows.credentialStore`                 | `wincredman`                               | Windows Credential Manager backing store.                                                       |
+| `advanced.git.credential.windows.guiPrompt`                       | `false`                                    | Keeps GCM from opening blocking dialogs.                                                        |
+| `advanced.git.credential.macos.helper`                            | `osxkeychain`                              | Applied when the helper exists.                                                                 |
+| `advanced.git.credential.linux.helper`                            | `manager`                                  | Applied when the helper exists.                                                                 |
+| `advanced.python.wingetPackageId`                                 | `Python.Python.{version}`                  | `{version}` is replaced by `user.python.version`.                                               |
+| `advanced.python.windowsInstallRoot`                              | `%LOCALAPPDATA%\Programs\Python`           | Where an existing interpreter is discovered.                                                    |
+| `advanced.python.uvInstallUrl.windows`                            | `https://astral.sh/uv/install.ps1`         | uv bootstrap, used only if winget is unavailable.                                               |
+| `advanced.python.uvInstallUrl.unix`                               | `https://astral.sh/uv/install.sh`          | uv bootstrap on macOS/Linux.                                                                    |
+| `advanced.python.uvWindowsPath`                                   | `%USERPROFILE%\.local\bin\uv.exe`          | Where the Windows uv bootstrap lands.                                                           |
+| `advanced.node.wingetPackageId`                                   | `OpenJS.NodeJS.LTS`                        | Also substituted into `windowsSearchPaths`.                                                     |
+| `advanced.node.homebrewFormula`                                   | `node`                                     | Formula used on macOS/Linux.                                                                    |
+| `advanced.node.windowsSearchPaths`                                | 3 paths                                    | Where `node.exe` is located after a winget install. `{wingetPackageId}` is substituted.         |
+| `advanced.php.homebrewFormula`                                    | `php`                                      | Formula used on macOS/Linux for PHP validation.                                                 |
+| `advanced.php.wingetPackageId`                                    | `PHP.PHP`                                  | Package used on Windows for PHP validation.                                                     |
+| `advanced.powershell.homebrewFormula`                             | `powershell`                               | Formula used on macOS/Linux for the PowerShell extension.                                       |
+| `advanced.powershell.wingetPackageId`                             | `Microsoft.PowerShell`                     | Package used on Windows for the PowerShell extension.                                           |
+| `advanced.vscode.profileDirectories`                              | per-OS stable/insiders paths               | Uses `%VAR%` on Windows and `$HOME` elsewhere.                                                  |
+| `advanced.vscode.managedSettingKeys.gitPath`                      | `git.path`                                 | Setting written with the resolved Git path.                                                     |
+| `advanced.vscode.managedSettingKeys.pythonInterpreter`            | `python.defaultInterpreterPath`            | Setting written with the resolved interpreter.                                                  |
+| `advanced.vscode.managedSettingKeys.phpValidator`                 | `php.validate.executablePath`              | Setting written with the resolved PHP executable.                                               |
+| `advanced.vscode.managedSettingKeys.powerShellAdditionalExePaths` | `powershell.powerShellAdditionalExePaths`  | Setting written with the resolved PowerShell executable.                                        |
+| `advanced.vscode.extensionCli`                                    | `stable: code`, `insiders: code-insiders`  | CLI used to install extensions per profile. A profile is skipped when its CLI is not on `PATH`. |
+| `advanced.vscode.mcpFileName`                                     | `mcp.json`                                 | File written next to `settings.json` in each profile.                                           |
+| `advanced.vscode.settings`                                        | `azureFunctions.showProjectWarning: false` | Non-devcontainer settings the setup owns.                                                       |
+| `advanced.devcontainers.dockerAccessFeatures`                     | map of 3 modes                             | Feature refs selected by `user.devcontainers.dockerAccess`.                                     |
+| `advanced.devcontainers.settingKeys.features`                     | `dev.containers.defaultFeatures`           | Key holding the feature map.                                                                    |
+| `advanced.devcontainers.settingKeys.extensions`                   | `dev.containers.defaultExtensions`         | Key holding the extension list.                                                                 |
+| `advanced.devcontainers.snippet.file`                             | `jsonc.json`                               | Snippet file written under `snippets/`.                                                         |
+| `advanced.devcontainers.snippet.name`                             | `Dev container (Ubuntu base)`              | Snippet entry name.                                                                             |
+| `advanced.devcontainers.snippet.prefix`                           | `devcontainer`                             | Text typed to expand the snippet.                                                               |
 
 ### Precedence
 
@@ -313,6 +397,14 @@ categories are **intentionally not** shipped here:
 | `terminal.integrated.cwd`                                                                                       | A personal folder convention.                                                                                                                                                 |
 | `chat.tools.global.autoApprove`, `chat.agent.sandbox.*`, `chat.agent.networkFilter`, `chat.tools.*.autoApprove` | Agent security posture. Auto-approving tool calls and disabling the sandbox is a personal risk decision and must not be a shared default. Set them yourself if you want them. |
 | Other `chat.*` / `github.copilot.*` tuning                                                                      | Fast-moving setting names and highly personal. Add to `user.vscode.settings` if you want them synced.                                                                         |
+| Excluded                                                                                                              | Why                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `git.path`, `python.defaultInterpreterPath`, `php.validate.executablePath`, `powershell.powerShellAdditionalExePaths` | Machine-local; resolved and written by the installers. The PHP and PowerShell path settings are ignored by Settings Sync.                                                     |
+| `azureResourceGroups.selectedSubscriptions`, `@azure.argTenant`, `chat.mcp.serverSampling`                            | Contain tenant/subscription identifiers. Never commit these to a shared repo.                                                                                                 |
+| `yaml.schemas`                                                                                                        | Absolute paths containing a username. Already in `settingsSync.ignoredSettings`.                                                                                              |
+| `terminal.integrated.cwd`                                                                                             | A personal folder convention.                                                                                                                                                 |
+| `chat.tools.global.autoApprove`, `chat.agent.sandbox.*`, `chat.agent.networkFilter`, `chat.tools.*.autoApprove`       | Agent security posture. Auto-approving tool calls and disabling the sandbox is a personal risk decision and must not be a shared default. Set them yourself if you want them. |
+| Other `chat.*` / `github.copilot.*` tuning                                                                            | Fast-moving setting names and highly personal. Add to `user.vscode.settings` if you want them synced.                                                                         |
 
 Anything in this list can still be added to `user.vscode.settings` on your own machine — the config
 is yours to extend.
@@ -436,10 +528,34 @@ Windows installs Node.js LTS per-user through `winget`; macOS/Linux use Homebrew
 execution policy blocks `npm.ps1`, use `npm.cmd install` / `npm.cmd test` — the same executable,
 without changing machine security policy.
 
+### PHP
+
+```bash
+./src/scripts/install-php.sh [--print-path] [--audit]
+```
+
+macOS/Linux use Homebrew and Windows uses WinGet to install PHP when it is missing. The resolved executable is written
+to VS Code's `php.validate.executablePath`, which restores built-in PHP validation. That absolute
+path is machine-local and explicitly excluded from Settings Sync.
+
+### PowerShell
+
+```powershell
+.\src\scripts\install-powershell.ps1 [-Audit]
+```
+
+```bash
+./src/scripts/install-powershell.sh [--print-path] [--audit]
+```
+
+macOS/Linux use Homebrew and Windows uses WinGet to install PowerShell 7 when it is missing. The
+resolved `pwsh` path is written to `powershell.powerShellAdditionalExePaths`, restoring discovery
+for the VS Code PowerShell extension. The path is machine-local and excluded from Settings Sync.
+
 ### VS Code settings
 
 ```powershell
-python .\src\configure-vscode.py [--dry-run] [--config <path>] [--git-path <p>] [--python-path <p>]
+python .\src\configure-vscode.py [--dry-run] [--config <path>] [--git-path <p>] [--python-path <p>] [--php-path <p>] [--powershell-path <p>]
 ```
 
 ```bash

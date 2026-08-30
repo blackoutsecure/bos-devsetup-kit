@@ -9,6 +9,8 @@
             "git": true,
             "node": true,
             "python": true,
+            "php": true,
+            "powershell": true,
             "vscodeSettings": true,
             "devcontainerDefaults": true,
             "mcpServers": true
@@ -88,7 +90,11 @@
                 "remote.autoForwardPortsSource": "hybrid",
                 "security.workspace.trust.banner": "always",
                 "security.workspace.trust.startupPrompt": "always",
-                "settingsSync.ignoredSettings": ["yaml.schemas"],
+                "settingsSync.ignoredSettings": [
+                    "php.validate.executablePath",
+                    "powershell.powerShellAdditionalExePaths",
+                    "yaml.schemas"
+                ],
                 "settingsSync.keybindingsPerPlatform": false,
                 "terminal.integrated.enableMultiLinePasteWarning": "never",
                 "terminal.integrated.enablePersistentSessions": false,
@@ -212,6 +218,14 @@
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}*\\node-v*\\node.exe"
             ]
         },
+        "php": {
+            "homebrewFormula": "php",
+            "wingetPackageId": "PHP.PHP"
+        },
+        "powershell": {
+            "homebrewFormula": "powershell",
+            "wingetPackageId": "Microsoft.PowerShell"
+        },
         "vscode": {
             "profileDirectories": {
                 "windows": {
@@ -230,7 +244,9 @@
             "managedSettingKeys": {
                 "gitPath": "git.path",
                 "pythonInterpreter": "python.defaultInterpreterPath",
-                "pythonGlobalModuleInstallation": "python.globalModuleInstallation"
+                "pythonGlobalModuleInstallation": "python.globalModuleInstallation",
+                "phpValidator": "php.validate.executablePath",
+                "powerShellAdditionalExePaths": "powershell.powerShellAdditionalExePaths"
             },
             "settingsSync": {
                 "stateDbRelativePath": "globalStorage/state.vscdb",
