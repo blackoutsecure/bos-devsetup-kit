@@ -18,9 +18,15 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 . "$script_dir/../config.sh"
 
 audit=0
-if [[ "${1:-}" == "--audit" ]]; then
-	audit=1
-fi
+print_path=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--audit) audit=1 ;;
+		--print-path) print_path=1 ;;
+		*) echo "Unknown option: $1" >&2; exit 2 ;;
+	esac
+	shift
+done
 
 os="$(uname -s)"
 formula="$(devsetup_config advanced.git.homebrewFormula git)"
@@ -39,8 +45,10 @@ if [[ $audit -eq 1 ]]; then
 			Linux)  devsetup_status install Git "would install '$formula' via Homebrew" ;;
 		esac
 	fi
-	user_email="$(devsetup_config user.git.userEmail "")"
 	devsetup_git_identity_status 1
+	if [[ $print_path -eq 1 && $git_present -eq 1 ]]; then
+		command -v git
+	fi
 	exit 0
 fi
 
@@ -96,3 +104,7 @@ if [[ -n "$user_email" ]]; then
 	git config --global user.email "$user_email"
 fi
 devsetup_git_identity_status
+
+if [[ $print_path -eq 1 ]]; then
+	command -v git
+fi

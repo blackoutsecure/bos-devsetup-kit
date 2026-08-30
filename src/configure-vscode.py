@@ -18,6 +18,7 @@ import os
 import platform
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -95,11 +96,16 @@ def write_json(path: Path, data: dict) -> None:
 
 def profile_dirs(config: dict) -> list[Path]:
     """Resolve the configured VS Code profiles for this OS."""
+    return [path for _, path in profile_targets(config)]
+
+
+def profile_targets(config: dict) -> list[tuple[str, Path]]:
+    """Resolve the configured VS Code profile names and directories for this OS."""
     os_key = OS_KEYS.get(platform.system(), "linux")
     configured = get(config, f"advanced.vscode.profileDirectories.{os_key}", {})
     wanted = get(config, "user.vscode.profiles", ["stable", "insiders"])
     return [
-        Path(os.path.expandvars(configured[name]))
+        (name, Path(os.path.expandvars(configured[name])))
         for name in wanted
         if name in configured
     ]
@@ -108,6 +114,13 @@ def profile_dirs(config: dict) -> list[Path]:
 def build_settings(config: dict, git_path: str | None, python_path: str | None) -> dict:
     settings: dict[str, Any] = {}
     settings.update(get(config, "advanced.vscode.settings", {}))
+    settings[
+        get(
+            config,
+            "advanced.vscode.managedSettingKeys.pythonGlobalModuleInstallation",
+            "python.globalModuleInstallation",
+        )
+    ] = bool(get(config, "user.python.allowGlobalPackageInstalls", False))
 
     if get(config, "user.install.devcontainerDefaults", True):
         features = dict(get(config, "user.devcontainers.features", {}))
@@ -236,6 +249,37 @@ def run_cli(cli: str, *args: str) -> tuple[int, str]:
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
 
+def code_cli_targets(config: dict, component: str = "ext") -> list[tuple[str, str, str]]:
+    clis = get(config, "advanced.vscode.extensionCli", {})
+    targets = []
+    for profile in get(config, "user.vscode.profiles", ["stable", "insiders"]):
+        command = clis.get(profile)
+        if not command:
+            continue
+        cli = shutil.which(command)
+        if cli:
+            targets.append((profile, command, cli))
+        else:
+            status("skip", component, f"'{command}' CLI not on PATH ({profile})")
+    return targets
+
+
+def extension_plan(config: dict, installed: set[str]) -> tuple[list[str], list[str]]:
+    wanted = [e.lower() for e in get(config, "user.vscode.extensions.install", [])]
+    blocked = [e.lower() for e in get(config, "user.vscode.extensions.block", [])]
+    return (
+        [e for e in wanted if e not in installed],
+        [e for e in blocked if e in installed],
+    )
+
+
+def installed_extensions(command: str, cli: str) -> set[str]:
+    code, output = run_cli(cli, "--list-extensions")
+    if code != 0:
+        raise RuntimeError(f"{command} --list-extensions failed")
+    return {line.strip().lower() for line in output.splitlines() if line.strip()}
+
+
 def manage_extensions(config: dict, dry_run: bool) -> None:
     """Install the recommended extensions and report or remove blocked ones."""
     if not get(config, "user.vscode.extensions.manage", True):
@@ -250,24 +294,13 @@ def manage_extensions(config: dict, dry_run: bool) -> None:
     if not wanted and not blocked:
         return
 
-    clis = get(config, "advanced.vscode.extensionCli", {})
-    for profile in get(config, "user.vscode.profiles", ["stable", "insiders"]):
-        command = clis.get(profile)
-        if not command:
-            continue
-        cli = shutil.which(command)
-        if not cli:
-            status("skip", "ext", f"'{command}' CLI not on PATH ({profile})")
-            continue
-
-        code, output = run_cli(cli, "--list-extensions")
-        if code != 0:
+    for profile, command, cli in code_cli_targets(config):
+        try:
+            installed = installed_extensions(command, cli)
+        except RuntimeError:
             status("warn", "ext", f"{command} --list-extensions failed ({profile})")
             continue
-        installed = {line.strip().lower() for line in output.splitlines() if line.strip()}
-
-        missing = [e for e in wanted if e not in installed]
-        present_blocked = [e for e in blocked if e in installed]
+        missing, present_blocked = extension_plan(config, installed)
 
         if not missing:
             status("found", "ext", f"all {len(wanted)} recommended present ({profile})")
@@ -293,6 +326,199 @@ def manage_extensions(config: dict, dry_run: bool) -> None:
                 status("install", "ext", f"uninstalled blocked {ext} ({profile})")
             else:
                 status("warn", "ext", f"failed to uninstall {ext}: {output.strip()[:120]}")
+
+
+def validate_extensions(config: dict) -> None:
+    """Confirm recommended extensions are installed where the matching CLI exists."""
+    if not get(config, "user.vscode.extensions.manage", True):
+        status("skip", "validate", "extension management is disabled")
+        return
+
+    uninstall_blocked = get(config, "user.vscode.extensions.uninstallBlocked", False)
+
+    for profile, command, cli in code_cli_targets(config, "validate"):
+        try:
+            installed = installed_extensions(command, cli)
+        except RuntimeError:
+            raise SystemExit(f"{command} --list-extensions failed during validation")
+        missing, present_blocked = extension_plan(config, installed)
+        if missing:
+            raise SystemExit(
+                f"Missing recommended extension(s) for {profile}: {', '.join(missing)}"
+            )
+
+        if uninstall_blocked and present_blocked:
+            raise SystemExit(
+                f"Blocked extension(s) still installed for {profile}: "
+                f"{', '.join(present_blocked)}"
+            )
+        status("found", "validate", f"extensions ok ({profile})")
+
+
+def validate_profiles(config: dict, settings: dict, snippet) -> None:
+    """Reread managed VS Code profile files and fail before sync if they drifted."""
+    targets = [target for target in profile_targets(config) if target[1].is_dir()]
+    if not targets:
+        status("skip", "validate", "no VS Code user profile found on this machine")
+        return
+
+    for profile, user_dir in targets:
+        settings_path = user_dir / "settings.json"
+        current = load_json(settings_path)
+        mismatched = [key for key, value in settings.items() if current.get(key) != value]
+        if mismatched:
+            raise SystemExit(
+                f"VS Code settings validation failed for {profile}: "
+                f"{', '.join(mismatched)}"
+            )
+
+        if snippet:
+            snippet_file, name, body = snippet
+            snippets_path = user_dir / "snippets" / snippet_file
+            snippets = load_json(snippets_path)
+            if snippets.get(name) != body:
+                raise SystemExit(f"VS Code snippet validation failed for {profile}: {name}")
+
+        status("found", "validate", f"settings ok ({profile})")
+
+
+def validate_mcp(config: dict) -> None:
+    """Confirm configured MCP servers and inputs are present after reconciliation."""
+    if not get(config, "user.install.mcpServers", True) or not get(
+        config, "user.mcp.manage", True
+    ):
+        status("skip", "validate", "MCP management is disabled")
+        return
+
+    servers = get(config, "user.mcp.servers", {})
+    inputs = get(config, "user.mcp.inputs", [])
+    filename = get(config, "advanced.vscode.mcpFileName", "mcp.json")
+    validate_profile_filename(filename, "advanced.vscode.mcpFileName")
+    targets = [target for target in profile_targets(config) if target[1].is_dir()]
+    if not targets:
+        return
+
+    for profile, user_dir in targets:
+        current = load_json(user_dir / filename)
+        existing, current_inputs = current_mcp_state(current)
+        missing = missing_mcp_servers(servers, existing)
+        if missing:
+            raise SystemExit(
+                f"MCP validation failed for {profile}; missing server(s): "
+                f"{', '.join(missing)}"
+            )
+
+        missing_inputs = missing_mcp_inputs(inputs, current_inputs)
+        if missing_inputs:
+            raise SystemExit(
+                f"MCP validation failed for {profile}; missing input(s): "
+                f"{', '.join(missing_inputs)}"
+            )
+
+        status("found", "validate", f"MCP ok ({profile})")
+
+
+def current_mcp_state(current: dict) -> tuple[dict, list]:
+    return current.get("servers") or {}, current.get("inputs") or []
+
+
+def missing_mcp_servers(servers: dict, existing: dict) -> list[str]:
+    return [name for name in servers if name not in existing]
+
+
+def missing_mcp_inputs(inputs: list, current_inputs: list) -> list[str]:
+    known = {i.get("id") for i in current_inputs}
+    return [i.get("id") for i in inputs if i.get("id") not in known]
+
+
+def validate_profile_filename(filename: str, setting: str) -> None:
+    if (
+        Path(filename).name != filename
+        or any(separator in filename for separator in ("/", "\\"))
+        or filename in {"", ".", ".."}
+    ):
+        raise SystemExit(f"{setting} must be a simple file name, got {filename!r}")
+
+
+def validate_install(config: dict, settings: dict, snippet, dry_run: bool) -> bool:
+    if dry_run:
+        status("skip", "validate", "dry-run; files were not changed")
+        return True
+
+    validate_profiles(config, settings, snippet)
+    validate_extensions(config)
+    validate_mcp(config)
+    return True
+
+
+def parse_state_bool(value: Any) -> bool:
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
+
+
+def read_state_value(config: dict, user_dir: Path, key: str) -> Any:
+    state_db = user_dir / get(
+        config, "advanced.vscode.settingsSync.stateDbRelativePath", "globalStorage/state.vscdb"
+    )
+    if not state_db.is_file():
+        return None
+    try:
+        with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True) as connection:
+            row = connection.execute(
+                "select value from ItemTable where key = ?", (key,)
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    return None if row is None else row[0]
+
+
+def sync_settings(config: dict, dry_run: bool) -> None:
+    """Request VS Code Settings Sync only when GitHub sync is already enabled."""
+    sync_config = get(config, "user.vscode.settingsSync", {})
+    if not get(sync_config, "syncAfterSetup", True):
+        status("skip", "sync", "user.vscode.settingsSync.syncAfterSetup is false")
+        return
+
+    clis = get(config, "advanced.vscode.extensionCli", {})
+    sync_keys = get(config, "advanced.vscode.settingsSync", {})
+    enabled_key = get(sync_keys, "enabledKey", "sync.enable")
+    provider_key = get(sync_keys, "accountProviderKey", "userDataSyncAccountProvider")
+    required_provider = get(sync_config, "requiredProvider", "github")
+    cli_args = get(sync_keys, "syncCliArgs", ["--sync", "on"])
+
+    for profile, user_dir in profile_targets(config):
+        if not user_dir.is_dir():
+            continue
+        enabled = parse_state_bool(read_state_value(config, user_dir, enabled_key))
+        provider = read_state_value(config, user_dir, provider_key)
+        if isinstance(provider, bytes):
+            provider = provider.decode("utf-8", errors="replace")
+        provider = str(provider or "").strip().lower()
+
+        if not enabled:
+            status("skip", "sync", f"Settings Sync is not enabled ({profile})")
+            continue
+        if required_provider and provider != required_provider.lower():
+            status("skip", "sync", f"provider is {provider or 'unknown'}, not {required_provider}")
+            continue
+
+        command = clis.get(profile)
+        cli = shutil.which(command) if command else None
+        if not cli:
+            status("skip", "sync", f"'{command}' CLI not on PATH ({profile})")
+            continue
+        if dry_run:
+            status("install", "sync", f"would request Settings Sync ({profile})")
+            continue
+
+        code, output = run_cli(cli, *cli_args)
+        if code == 0:
+            status("install", "sync", f"requested GitHub Settings Sync ({profile})")
+        else:
+            status("warn", "sync", f"sync request failed: {output.strip()[:120]}")
 
 
 def manage_mcp(config: dict, dry_run: bool) -> None:
@@ -326,6 +552,7 @@ def manage_mcp(config: dict, dry_run: bool) -> None:
         )
 
     filename = get(config, "advanced.vscode.mcpFileName", "mcp.json")
+    validate_profile_filename(filename, "advanced.vscode.mcpFileName")
     verb = "would add" if dry_run else "added"
 
     for user_dir in profile_dirs(config):
@@ -333,9 +560,9 @@ def manage_mcp(config: dict, dry_run: bool) -> None:
             continue
         path = user_dir / filename
         current = load_json(path)
-        existing = current.get("servers") or {}
+        existing, current_inputs = current_mcp_state(current)
 
-        added = [name for name in servers if name not in existing]
+        added = missing_mcp_servers(servers, existing)
         present_blocked = [name for name in blocked if name in existing]
 
         changed = False
@@ -349,9 +576,8 @@ def manage_mcp(config: dict, dry_run: bool) -> None:
             else:
                 status("warn", "mcp", f"{name} is blocked but configured")
 
-        current_inputs = current.get("inputs") or []
-        known = {i.get("id") for i in current_inputs}
-        new_inputs = [i for i in inputs if i.get("id") not in known]
+        missing_inputs = set(missing_mcp_inputs(inputs, current_inputs))
+        new_inputs = [i for i in inputs if i.get("id") in missing_inputs]
         if new_inputs:
             current_inputs.extend(new_inputs)
             changed = True
@@ -404,6 +630,8 @@ def main() -> int:
 
     manage_extensions(config, args.dry_run)
     manage_mcp(config, args.dry_run)
+    if validate_install(config, settings, snippet, args.dry_run):
+        sync_settings(config, args.dry_run)
     return 0
 
 

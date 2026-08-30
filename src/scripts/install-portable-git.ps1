@@ -13,6 +13,7 @@ param(
     [string]$InstallDir,
     [switch]$ConfigureVSCode,
     [switch]$ForcePortable,
+    [switch]$PrintPath,
     [switch]$Audit
 )
 
@@ -63,6 +64,7 @@ if ($Audit) {
 
         Write-DevSetupGitIdentityStatus $config $gitExe -Audit
     }
+    if ($PrintPath -and (Test-Path $gitExe)) { $gitExe }
     return
 }
 
@@ -89,12 +91,12 @@ if (-not (Test-Path $gitExe)) {
 $credentialSettings = Get-DevSetupGitCredentialSetting $config
 
 if ($gitExe.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)) {
-    & $gitExe config --system --unset-all credential.helper 2>$null
+    & $gitExe config --system --unset-all credential.helper 2> $null
 }
 
 $credentialChanges = 0
 foreach ($setting in $credentialSettings) {
-    if ((& $gitExe config --global --get $setting.Key 2>$null) -eq $setting.Value) { continue }
+    if ((& $gitExe config --global --get $setting.Key) -eq $setting.Value) { continue }
     if ($setting.ReplaceAll) { & $gitExe config --global --replace-all $setting.Key $setting.Value }
     else { & $gitExe config --global $setting.Key $setting.Value }
     $credentialChanges++
@@ -116,3 +118,5 @@ Add-DevSetupUserPath (Join-Path $InstallDir "cmd")
 if ($ConfigureVSCode) {
     Set-DevSetupVSCodeSetting $config (Get-DevSetupValue $config "advanced.vscode.managedSettingKeys.gitPath" "git.path") $gitExe
 }
+
+if ($PrintPath) { $gitExe }

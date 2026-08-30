@@ -39,10 +39,22 @@ else
 	audit_flag=""
 fi
 
+git_command=""
 if devsetup_enabled user.install.git; then
-	"${BASH:-bash}" "$scripts/install-portable-git.sh" $audit_flag
+	if devsetup_enabled user.install.vscodeSettings; then
+		git_command="$({ "${BASH:-bash}" "$scripts/install-portable-git.sh" $audit_flag --print-path; } | tee /dev/stderr | tail -n 1)"
+		if [[ ! -x "$git_command" ]]; then
+			git_command=""
+		fi
+	else
+		"${BASH:-bash}" "$scripts/install-portable-git.sh" $audit_flag
+	fi
 else
 	devsetup_status skip Git "user.install.git is false"
+fi
+
+if [[ -z "$git_command" ]] && command -v git >/dev/null 2>&1; then
+	git_command="$(command -v git)"
 fi
 
 if devsetup_enabled user.install.node; then
@@ -73,12 +85,14 @@ fi
 
 if devsetup_enabled user.install.vscodeSettings; then
 	if [[ -n "$python_command" ]]; then
+		vscode_args=(--config "$DEVSETUP_CONFIG_FILE" --python-path "$python_command")
+		if [[ -n "$git_command" ]]; then
+			vscode_args+=(--git-path "$git_command")
+		fi
 		if [[ $audit -eq 1 ]]; then
-			"$python_command" "$script_dir/src/configure-vscode.py" \
-				--config "$DEVSETUP_CONFIG_FILE" --python-path "$python_command" --dry-run
+			"$python_command" "$script_dir/src/configure-vscode.py" "${vscode_args[@]}" --dry-run
 		else
-			"$python_command" "$script_dir/src/configure-vscode.py" \
-				--config "$DEVSETUP_CONFIG_FILE" --python-path "$python_command"
+			"$python_command" "$script_dir/src/configure-vscode.py" "${vscode_args[@]}"
 		fi
 	else
 		devsetup_status warn vscode "Python not available; run src/configure-vscode.py manually"
@@ -93,6 +107,6 @@ if [[ $audit -eq 1 ]]; then
 else
 	echo "Setup complete. WSL was not installed or invoked."
 	if devsetup_enabled user.install.vscodeSettings; then
-		echo "Enable Settings Sync from VS Code's Accounts menu and sign in with GitHub to sync eligible settings."
+		echo "VS Code settings were validated; GitHub Settings Sync was requested when already enabled."
 	fi
 fi

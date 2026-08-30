@@ -35,6 +35,7 @@ if (-not $PythonVersion) {
 }
 
 $configureVSCode = (-not $SkipVSCodeSettings) -and (Get-DevSetupValue $config "user.install.vscodeSettings" $true)
+$gitExe = $null
 $pythonExe = $null
 
 if ($Audit) {
@@ -44,7 +45,8 @@ if ($Audit) {
 }
 
 if (Get-DevSetupValue $config "user.install.git" $true) {
-    & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -ConfigureVSCode:$configureVSCode -Audit:$Audit | Out-Null
+    $gitExe = & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -ConfigureVSCode:$configureVSCode -PrintPath:$configureVSCode -Audit:$Audit |
+        Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Git" "user.install.git is false"
 }
@@ -82,8 +84,8 @@ if ($configureVSCode) {
     }
 
     if ($pythonExe) {
-        # git.path is owned by install-portable-git.ps1, which knows which git actually resolved.
         $arguments = @((Join-Path $PSScriptRoot "src\configure-vscode.py"), "--config", $configPath, "--python-path", $pythonExe)
+        if ($gitExe -and (Test-Path $gitExe)) { $arguments += @("--git-path", $gitExe) }
         if ($Audit) { $arguments += "--dry-run" }
         & $pythonExe $arguments
     } else {
@@ -97,6 +99,6 @@ if ($Audit) {
 } else {
     Write-Host "Setup complete. WSL was not installed or invoked."
     if ($configureVSCode) {
-        Write-Host "Enable Settings Sync from VS Code's Accounts menu and sign in with GitHub to sync eligible settings."
+        Write-Host "VS Code settings were validated; GitHub Settings Sync was requested when already enabled."
     }
 }

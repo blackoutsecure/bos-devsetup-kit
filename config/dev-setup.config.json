@@ -20,13 +20,16 @@
             "userEmail": ""
         },
         "python": {
-            "version": "3.14"
+            "version": "3.14",
+            "allowGlobalPackageInstalls": false,
+            "recommendedVirtualEnvironment": ".venv"
         },
         "vscode": {
-            "profiles": [
-                "stable",
-                "insiders"
-            ],
+            "profiles": ["stable", "insiders"],
+            "settingsSync": {
+                "syncAfterSetup": true,
+                "requiredProvider": "github"
+            },
             "extensions": {
                 "manage": true,
                 "uninstallBlocked": false,
@@ -65,6 +68,8 @@
             },
             "settings": {
                 "diffEditor.maxComputationTime": 0,
+                "editor.defaultFormatter": "esbenp.prettier-vscode",
+                "editor.formatOnSave": true,
                 "explorer.confirmDelete": true,
                 "explorer.confirmDragAndDrop": false,
                 "explorer.confirmPasteNative": false,
@@ -78,13 +83,12 @@
                 "markdown.extension.completion.enabled": true,
                 "markdown.extension.preview.autoShowPreviewToSide": true,
                 "python.analysis.typeCheckingMode": "strict",
+                "python.terminal.activateEnvironment": true,
                 "redhat.telemetry.enabled": false,
                 "remote.autoForwardPortsSource": "hybrid",
                 "security.workspace.trust.banner": "always",
                 "security.workspace.trust.startupPrompt": "always",
-                "settingsSync.ignoredSettings": [
-                    "yaml.schemas"
-                ],
+                "settingsSync.ignoredSettings": ["yaml.schemas"],
                 "settingsSync.keybindingsPerPlatform": false,
                 "terminal.integrated.enableMultiLinePasteWarning": "never",
                 "terminal.integrated.enablePersistentSessions": false,
@@ -117,16 +121,12 @@
                 "microsoft/markitdown": {
                     "type": "stdio",
                     "command": "uvx",
-                    "args": [
-                        "markitdown-mcp@0.0.1a4"
-                    ]
+                    "args": ["markitdown-mcp@0.0.1a4"]
                 },
                 "microsoft/playwright-mcp": {
                     "type": "stdio",
                     "command": "npx",
-                    "args": [
-                        "@playwright/mcp@0.0.79"
-                    ]
+                    "args": ["@playwright/mcp@0.0.79"]
                 }
             },
             "inputs": [],
@@ -150,9 +150,18 @@
                 "GitHub.copilot-chat",
                 "GitHub.vscode-pull-request-github",
                 "GitHub.vscode-github-actions",
+                "charliermarsh.ruff",
+                "dbaeumer.vscode-eslint",
                 "eamodio.gitlens",
                 "editorconfig.editorconfig",
+                "esbenp.prettier-vscode",
+                "davidanson.vscode-markdownlint",
+                "ms-python.debugpy",
+                "ms-python.python",
+                "ms-python.vscode-pylance",
                 "redhat.vscode-yaml",
+                "streetsidesoftware.code-spell-checker",
+                "yzhang.markdown-all-in-one",
                 "timonwong.shellcheck"
             ],
             "settings": {
@@ -220,7 +229,14 @@
             },
             "managedSettingKeys": {
                 "gitPath": "git.path",
-                "pythonInterpreter": "python.defaultInterpreterPath"
+                "pythonInterpreter": "python.defaultInterpreterPath",
+                "pythonGlobalModuleInstallation": "python.globalModuleInstallation"
+            },
+            "settingsSync": {
+                "stateDbRelativePath": "globalStorage/state.vscdb",
+                "enabledKey": "sync.enable",
+                "accountProviderKey": "userDataSyncAccountProvider",
+                "syncCliArgs": ["--sync", "on"]
             },
             "extensionCli": {
                 "stable": "code",
