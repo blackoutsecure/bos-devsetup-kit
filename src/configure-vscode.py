@@ -271,6 +271,22 @@ def run_cli(cli: str, *args: str) -> tuple[int, str]:
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
 
+def find_code_cli(config: dict, profile: str, command: str) -> str | None:
+    """Fall back to well-known install locations when the CLI shim isn't on PATH."""
+    cli = shutil.which(command)
+    if cli:
+        return cli
+    os_key = OS_KEYS.get(platform.system(), "linux")
+    if os_key == "windows":
+        return None
+    candidates = get(config, f"advanced.vscode.extensionCliFallbackPaths.{profile}.{os_key}", [])
+    for candidate in candidates:
+        path = os.path.expanduser(os.path.expandvars(candidate))
+        if os.access(path, os.X_OK):
+            return path
+    return None
+
+
 def code_cli_targets(config: dict, component: str = "ext") -> list[tuple[str, str, str]]:
     clis = get(config, "advanced.vscode.extensionCli", {})
     targets = []
@@ -278,7 +294,7 @@ def code_cli_targets(config: dict, component: str = "ext") -> list[tuple[str, st
         command = clis.get(profile)
         if not command:
             continue
-        cli = shutil.which(command)
+        cli = find_code_cli(config, profile, command)
         if cli:
             targets.append((profile, command, cli))
         else:
@@ -528,7 +544,7 @@ def sync_settings(config: dict, dry_run: bool) -> None:
             continue
 
         command = clis.get(profile)
-        cli = shutil.which(command) if command else None
+        cli = find_code_cli(config, profile, command) if command else None
         if not cli:
             status("skip", "sync", f"'{command}' CLI not on PATH ({profile})")
             continue

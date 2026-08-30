@@ -258,6 +258,31 @@
                 "stable": "code",
                 "insiders": "code-insiders"
             },
+            "extensionCliFallbackPaths": {
+                "stable": {
+                    "macos": [
+                        "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+                        "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+                    ],
+                    "linux": [
+                        "/usr/share/code/bin/code",
+                        "/usr/bin/code",
+                        "/snap/bin/code",
+                        "/var/lib/flatpak/exports/bin/com.visualstudio.code"
+                    ]
+                },
+                "insiders": {
+                    "macos": [
+                        "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders",
+                        "$HOME/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code-insiders"
+                    ],
+                    "linux": [
+                        "/usr/share/code-insiders/bin/code-insiders",
+                        "/usr/bin/code-insiders",
+                        "/snap/bin/code-insiders"
+                    ]
+                }
+            },
             "mcpFileName": "mcp.json",
             "settings": {
                 "azureFunctions.showProjectWarning": false
