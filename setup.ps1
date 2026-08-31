@@ -17,6 +17,9 @@ param(
     [string]$GitInstallDir,
     [string]$PythonVersion,
     [switch]$SkipVSCodeSettings,
+    [switch]$SkipUpgradeCheck,
+    [switch]$CheckUpgradesOnly,
+    [switch]$Uninstall,
     [switch]$Audit
 )
 
@@ -25,6 +28,10 @@ $ErrorActionPreference = "Stop"
 $configPath = $DevSetupConfigPath
 $config = Get-DevSetupConfig $configPath
 $scripts = Join-Path $PSScriptRoot "src\scripts"
+
+$statusLog = Join-Path ([System.IO.Path]::GetTempPath()) ("devsetup-status-{0}.log" -f [guid]::NewGuid())
+New-Item -Path $statusLog -ItemType File -Force | Out-Null
+$env:DEVSETUP_STATUS_LOG = $statusLog
 
 if (-not $GitInstallDir) {
     $GitInstallDir = Expand-DevSetupPath (Get-DevSetupValue $config "user.git.installDir" (
@@ -35,10 +42,79 @@ if (-not $PythonVersion) {
 }
 
 $configureVSCode = (-not $SkipVSCodeSettings) -and (Get-DevSetupValue $config "user.install.vscodeSettings" $true)
+$checkUpgrades = $CheckUpgradesOnly -or ((-not $SkipUpgradeCheck) -and (Get-DevSetupValue $config "user.checkUpgrades" $true))
 $gitExe = $null
 $pythonExe = $null
 $phpExe = $null
 $powerShellExe = $null
+
+if ($Uninstall) {
+    Write-Host "Uninstalling (each step only removes tools this kit manages; Git is never removed):"
+    if (Get-DevSetupValue $config "user.install.git" $true) {
+        & (Join-Path $scripts "install-portable-git.ps1") -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.node" $true) {
+        & (Join-Path $scripts "install-node.ps1") -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.python" $true) {
+        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.php" $true) {
+        & (Join-Path $scripts "install-php.ps1") -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.powershell" $true) {
+        & (Join-Path $scripts "install-powershell.ps1") -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
+        & (Join-Path $scripts "install-shellcheck.ps1") -Uninstall -Audit:$Audit
+    }
+    if (Get-DevSetupValue $config "user.install.gpg" $true) {
+        & (Join-Path $scripts "install-gpg.ps1") -Uninstall -Audit:$Audit
+    }
+
+    Write-Host ""
+    if ($Audit) {
+        Write-Host "Uninstall audit complete. Nothing was removed. Re-run with -Uninstall (without -Audit) to apply."
+    } else {
+        Write-Host "Uninstall complete."
+    }
+    Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit
+    Remove-Item $statusLog -ErrorAction SilentlyContinue
+    Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue
+    return
+}
+
+if ($CheckUpgradesOnly) {
+    Write-Host "Checking for upgrades (detect only - nothing will be installed or changed):"
+    if (Get-DevSetupValue $config "user.install.git" $true) {
+        & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.node" $true) {
+        & (Join-Path $scripts "install-node.ps1") -Audit -CheckUpgrades
+    }
+    if (Get-DevSetupValue $config "user.install.python" $true) {
+        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.php" $true) {
+        & (Join-Path $scripts "install-php.ps1") -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.powershell" $true) {
+        & (Join-Path $scripts "install-powershell.ps1") -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
+        & (Join-Path $scripts "install-shellcheck.ps1") -Audit -CheckUpgrades
+    }
+    if (Get-DevSetupValue $config "user.install.gpg" $true) {
+        & (Join-Path $scripts "install-gpg.ps1") -Audit -CheckUpgrades
+    }
+
+    Write-Host ""
+    Write-Host "Upgrade check complete. Nothing was installed or changed."
+    Write-DevSetupSummary -LogPath $statusLog -Audit
+    Remove-Item $statusLog -ErrorAction SilentlyContinue
+    Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue
+    return
+}
 
 if ($Audit) {
     Write-Host "Auditing (detect only - nothing will be installed or changed):"
@@ -46,43 +122,57 @@ if ($Audit) {
     Write-Host "Running setup (each step is skipped when already satisfied):"
 }
 
+Write-DevSetupStatus skip "WSL" "not installed or invoked by setup.ps1 (see setup-wsl.ps1 for existing WSL user setup)"
+
 if (Get-DevSetupValue $config "user.install.git" $true) {
-    $gitExe = & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -ConfigureVSCode:$configureVSCode -PrintPath:$configureVSCode -Audit:$Audit |
+    $gitExe = & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -ConfigureVSCode:$configureVSCode -PrintPath:$configureVSCode -Audit:$Audit -CheckUpgrades:$checkUpgrades |
         Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Git" "user.install.git is false"
 }
 
 if (Get-DevSetupValue $config "user.install.node" $true) {
-    & (Join-Path $scripts "install-node.ps1") -Audit:$Audit
+    & (Join-Path $scripts "install-node.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
 } else {
     Write-DevSetupStatus skip "Node.js" "user.install.node is false"
 }
 
 if (Get-DevSetupValue $config "user.install.python" $true) {
     # install-python.ps1 emits the resolved interpreter path as its last output.
-    $pythonExe = & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -ConfigureVSCode:$configureVSCode -Audit:$Audit |
+    $pythonExe = & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -ConfigureVSCode:$configureVSCode -Audit:$Audit -CheckUpgrades:$checkUpgrades |
         Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Python" "user.install.python is false"
 }
 
 if (Get-DevSetupValue $config "user.install.php" $true) {
-    $phpExe = & (Join-Path $scripts "install-php.ps1") -Audit:$Audit | Select-Object -Last 1
+    $phpExe = & (Join-Path $scripts "install-php.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "PHP" "user.install.php is false"
 }
 
 if (Get-DevSetupValue $config "user.install.powershell" $true) {
-    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit | Select-Object -Last 1
+    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "PowerShell" "user.install.powershell is false"
 }
 
 if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
-    & (Join-Path $scripts "install-shellcheck.ps1") -Audit:$Audit
+    & (Join-Path $scripts "install-shellcheck.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
 } else {
     Write-DevSetupStatus skip "ShellCheck" "user.install.shellcheck is false"
+}
+
+if (Get-DevSetupValue $config "user.install.gpg" $true) {
+    # Unlike the other WinGet installers, Gpg4win doesn't support a per-user-only
+    # install on every machine, so a failure here shouldn't abort the rest of setup.
+    try {
+        & (Join-Path $scripts "install-gpg.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+    } catch {
+        Write-DevSetupStatus warn "GPG" $_.Exception.Message
+    }
+} else {
+    Write-DevSetupStatus skip "GPG" "user.install.gpg is false"
 }
 
 if (-not $configureVSCode) {
@@ -119,8 +209,9 @@ Write-Host ""
 if ($Audit) {
     Write-Host "Audit complete. Nothing was installed or changed. Re-run without -Audit to apply."
 } else {
-    Write-Host "Setup complete. WSL was not installed or invoked."
-    if ($configureVSCode) {
-        Write-Host "VS Code settings were validated. Settings Sync was not requested unless enabled in config."
-    }
+    Write-Host "Setup complete."
 }
+
+Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit
+Remove-Item $statusLog -ErrorAction SilentlyContinue
+Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue

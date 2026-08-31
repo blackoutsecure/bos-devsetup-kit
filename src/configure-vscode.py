@@ -56,6 +56,13 @@ def status(state: str, component: str, detail: str = "") -> None:
         tag = f"{color}{tag}{_RESET}"
     print(f"  {tag} {component:<8} {detail}")
 
+    # DEVSETUP_STATUS_LOG lets the top-level runner (setup.ps1 / setup.sh) tally
+    # every line, including these, even though this script runs in its own process.
+    log_path = os.environ.get("DEVSETUP_STATUS_LOG")
+    if log_path:
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"{state}|{component}|{detail}\n")
+
 
 def get(config: dict, key: str, default: Any = None) -> Any:
     """Look up a dotted path, falling back when absent, null, or blank."""

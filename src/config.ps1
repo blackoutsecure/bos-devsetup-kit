@@ -78,9 +78,11 @@ function Write-DevSetupStatus {
         install - something is about to change
         skip    - disabled in config, or not applicable on this platform
         warn    - proceeded, but the result is degraded
+        update  - a newer version is available (reported only, never applied automatically)
+        remove  - uninstalled, only reachable via -Uninstall
     #>
     param(
-        [Parameter(Mandatory)][ValidateSet("found", "install", "skip", "warn")][string]$State,
+        [Parameter(Mandatory)][ValidateSet("found", "install", "skip", "warn", "update", "remove")][string]$State,
         [Parameter(Mandatory)][string]$Component,
         [string]$Detail = ""
     )
@@ -90,8 +92,70 @@ function Write-DevSetupStatus {
         "install" { "Cyan" }
         "skip"    { "DarkGray" }
         "warn"    { "Yellow" }
+        "update"  { "Magenta" }
+        "remove"  { "Red" }
     }
-    Write-Host ("  {0,-9} {1,-8} {2}" -f "[$State]", $Component, $Detail) -ForegroundColor $color
+    Write-Host ("  {0,-9} " -f "[$State]") -ForegroundColor $color -NoNewline
+    Write-Host ("{0,-8} {1}" -f $Component, $Detail)
+
+    # DEVSETUP_STATUS_LOG lets the top-level runner tally every line, including
+    # ones emitted by configure-vscode.py in a separate process later in the run.
+    if ($env:DEVSETUP_STATUS_LOG) {
+        Add-Content -Path $env:DEVSETUP_STATUS_LOG -Value "$State|$Component|$Detail"
+    }
+}
+
+function Write-DevSetupSummary {
+    <#
+    .SYNOPSIS
+        Prints one total per status tag for the whole run.
+    .DESCRIPTION
+        Reads the log written by every Write-DevSetupStatus call this run (including
+        from configure-vscode.py), so the summary reflects every step, not just the
+        ones setup.ps1 called directly. In -Audit runs, also recommends whether to
+        run the real setup, lists what it would change, and gives the exact command.
+    #>
+    param([string]$LogPath, [switch]$Audit)
+
+    $counts = [ordered]@{ found = 0; install = 0; skip = 0; warn = 0; update = 0; remove = 0 }
+    $pending = @()
+    if ($LogPath -and (Test-Path $LogPath)) {
+        foreach ($line in Get-Content $LogPath) {
+            $parts = $line -split '\|', 3
+            $state = $parts[0]
+            if (-not $counts.Contains($state)) { continue }
+            $counts[$state]++
+            if ($Audit -and $state -eq "install") {
+                $component = if ($parts.Count -gt 1) { $parts[1] } else { "" }
+                $detail = if ($parts.Count -gt 2) { $parts[2] } else { "" }
+                $pending += "$component`: $detail"
+            }
+        }
+    }
+
+    $installLabel = if ($Audit) { "would install" } else { "installed" }
+    $warnLabel = if ($counts.warn -eq 1) { "warning" } else { "warnings" }
+    $summaryLine = "Summary: $($counts.found) found, $($counts.install) $installLabel, $($counts.skip) skipped, $($counts.warn) $warnLabel"
+    if ($counts.update -gt 0) { $summaryLine += ", $($counts.update) update$(if ($counts.update -ne 1) { 's' }) available" }
+    if ($counts.remove -gt 0) { $summaryLine += ", $($counts.remove) removed" }
+    Write-Host ""
+    Write-Host $summaryLine
+
+    if ($Audit) {
+        Write-Host ""
+        if ($pending.Count -eq 0) {
+            Write-Host "Recommendation: no changes needed, environment already matches config/dev-setup.config.json. No need to run without -Audit."
+        } else {
+            Write-Host "Recommendation: $($pending.Count) change(s) would be made if you run the real setup:"
+            foreach ($item in $pending) {
+                Write-Host "  - $item"
+            }
+            Write-Host "Run this to apply them: .\setup.ps1"
+        }
+        if ($counts.warn -gt 0) {
+            Write-Host "$($counts.warn) item(s) need attention regardless (see [warn] lines above)."
+        }
+    }
 }
 
 function Get-DevSetupVSCodeProfilePath {
@@ -155,6 +219,128 @@ function Add-DevSetupUserPath {
     $updated = if ($Prepend) { "$Directory;$userPath" } else { "$userPath;$Directory" }
     [Environment]::SetEnvironmentVariable("Path", $updated, "User")
     Write-DevSetupStatus install "PATH" "added $Directory to the user PATH"
+}
+
+function Update-DevSetupSessionPath {
+    <# Refreshes $env:Path for this process after an installer (winget) updates PATH out-of-process. #>
+    $env:Path = (@(
+        $env:Path,
+        [Environment]::GetEnvironmentVariable("Path", "Machine"),
+        [Environment]::GetEnvironmentVariable("Path", "User")
+    ) | Where-Object { $_ }) -join ";"
+}
+
+function Find-DevSetupWingetExecutable {
+    <#
+    .SYNOPSIS
+        Get-Command lookup, falling back to configured WinGet package-install glob paths.
+    .DESCRIPTION
+        Shared by installers whose tool isn't reliably added to PATH by WinGet
+        (install-php.ps1, install-shellcheck.ps1). $DefaultPaths entries may
+        contain a {wingetPackageId} placeholder.
+    #>
+    param($Config, [Parameter(Mandatory)][string]$ExeName, [Parameter(Mandatory)][string]$ConfigKey,
+        [Parameter(Mandatory)][string]$PackageId, [string[]]$DefaultPaths)
+
+    $command = Get-Command $ExeName -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+    if ($command) { return $command }
+
+    $configuredPaths = Get-DevSetupValue $Config $ConfigKey $DefaultPaths
+    $configuredPaths |
+        ForEach-Object { Expand-DevSetupPath ($_ -replace '\{wingetPackageId\}', $PackageId) } |
+        ForEach-Object { Get-ChildItem $_ -File -ErrorAction SilentlyContinue } |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+
+function Install-DevSetupWingetTool {
+    <#
+    .SYNOPSIS
+        Shared single-package WinGet install pattern.
+    .DESCRIPTION
+        Used by install-php.ps1, install-powershell.ps1, and install-shellcheck.ps1,
+        which differ only in component name, package ID, and how the executable is
+        located. $Find is called before and (if installing) after the WinGet run.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Component,
+        [Parameter(Mandatory)][string]$PackageId,
+        [Parameter(Mandatory)][scriptblock]$Find,
+        [Parameter(Mandatory)][string]$ManualInstallHint,
+        [switch]$Audit,
+        [switch]$CheckUpgrades
+    )
+
+    $exe = & $Find
+
+    if ($Audit) {
+        if ($exe) {
+            Write-DevSetupStatus found $Component "$(& $exe --version | Select-Object -First 1) at $exe"
+            if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
+        } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
+            Write-DevSetupStatus install $Component "would install $PackageId via winget"
+        } else {
+            Write-DevSetupStatus warn $Component "missing and winget is unavailable"
+        }
+        return $exe
+    }
+
+    if (-not $exe) {
+        if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+            throw "$Component is unavailable and winget is not installed. $ManualInstallHint"
+        }
+        Write-DevSetupStatus install $Component "installing $PackageId via winget (per-user, no admin, no GUI)"
+        & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
+        if ($LASTEXITCODE -ne 0) {
+            throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"
+        }
+        Update-DevSetupSessionPath
+        $exe = & $Find
+    }
+    if (-not $exe) { throw "$Component setup completed but the executable was not found. Open a new terminal and run setup again." }
+
+    Write-DevSetupStatus found $Component "$(& $exe --version | Select-Object -First 1) at $exe"
+    if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
+    return $exe
+}
+
+function Test-DevSetupWingetUpgrade {
+    <#
+    .SYNOPSIS
+        Reports (never applies) whether winget has a newer version of an installed package.
+    .DESCRIPTION
+        Silent when winget is unavailable or the tool is already current. Upgrading
+        is left to the user; this script never applies an upgrade automatically.
+    #>
+    param([Parameter(Mandatory)][string]$Component, [Parameter(Mandatory)][string]$PackageId)
+
+    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { return }
+    $output = & winget.exe upgrade --id $PackageId -e --accept-source-agreements 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($output | Select-String -SimpleMatch $PackageId)) {
+        Write-DevSetupStatus update $Component "newer version available (run: winget upgrade --id $PackageId)"
+    }
+}
+
+function Uninstall-DevSetupWingetTool {
+    <#
+    .SYNOPSIS
+        Removes a WinGet-managed tool. Only ever called when -Uninstall is passed explicitly.
+    #>
+    param([Parameter(Mandatory)][string]$Component, [Parameter(Mandatory)][string]$PackageId, [switch]$Audit)
+
+    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+        Write-DevSetupStatus warn $Component "winget is unavailable; cannot uninstall"
+        return
+    }
+    if ($Audit) {
+        Write-DevSetupStatus remove $Component "would uninstall $PackageId via winget"
+        return
+    }
+    & winget.exe uninstall --id $PackageId -e --accept-source-agreements 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-DevSetupStatus remove $Component "uninstalled $PackageId via winget"
+    } else {
+        Write-DevSetupStatus warn $Component "not installed via winget, or uninstall failed (exit $LASTEXITCODE)"
+    }
 }
 
 function Get-DevSetupGitCredentialSetting {

@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Python, PHP, and PowerShell per-user, then applies VS Code settings that follow you through
+Installs Git, Node.js, Python, PHP, PowerShell, ShellCheck, and GPG per-user, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -17,11 +17,11 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 ## Requirements
 
-| Platform        | Needs                                                                                                     |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, and PowerShell 7 (falls back to `uv` for Python).     |
-| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, and PowerShell.                              |
-| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, and PowerShell. |
+| Platform        | Needs                                                                                                                      |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and GPG (falls back to `uv` for Python).     |
+| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, and GPG.                              |
+| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, and GPG. |
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
@@ -76,6 +76,59 @@ The setup also installs the ShellCheck CLI by default, so the local Bash lint
 checks used by the Blackout Secure repositories can run without a separate
 tool installation. Set `user.install.shellcheck` to `false` to skip it.
 
+GPG is installed by default too, so `git` commit/tag signing works without a separate
+tool installation. Set `user.install.gpg` to `false` to skip it. Unlike this kit's other
+Windows installers, Gpg4win's WinGet package does not support a per-user-only install on
+every machine; if the per-user install fails, run `winget install --id GnuPG.Gpg4win -e`
+yourself and accept any elevation prompt, or install manually from
+[gpg4win.org](https://www.gpg4win.org/).
+
+### Optional GPG signing identity
+
+`manage-gpg-key.ps1` / `manage-gpg-key.sh` are separate, opt-in helpers that generate, export, or
+import a GPG key for `git` commit/tag signing. They're separate from `setup.ps1`/`setup.sh` because
+they change real state: a new secret key in your keyring, and your global git signing config
+(`user.signingkey`, `commit.gpgsign`, `tag.gpgsign`). Nothing here runs as part of the main setup.
+Audit first:
+
+```powershell
+.\manage-gpg-key.ps1 -Audit
+```
+
+```bash
+./manage-gpg-key.sh --audit
+```
+
+Generate a new key (using `user.git.userName` / `user.git.userEmail` from config) and configure git
+to sign with it:
+
+```powershell
+.\manage-gpg-key.ps1 -Generate
+```
+
+```bash
+./manage-gpg-key.sh --generate
+```
+
+Back up the configured signing key to a password-protected archive, and restore it on another
+machine. The archive is a plain zip/tarball encrypted with GPG's own AES-256 symmetric cipher, so
+"zipping it and putting it wherever" doesn't need a separate archiver:
+
+```powershell
+.\manage-gpg-key.ps1 -Export C:\path\to\gpg-backup   # -ZipPassword <SecureString>, or one is generated and shown once
+.\manage-gpg-key.ps1 -Import C:\path\to\gpg-backup.gpg -ZipPassword <SecureString>
+```
+
+```bash
+./manage-gpg-key.sh --export /path/to/gpg-backup --zip-password '<password>'   # omit to generate one, shown once
+./manage-gpg-key.sh --import /path/to/gpg-backup.gpg --zip-password '<password>'
+```
+
+`-Generate`/`--generate` and `-Export`/`--export` can be combined in one run. If a passphrase or
+archive password isn't supplied, one is generated and printed once - save it, since it can't be
+recovered afterward. `-KeyPassphrase`/`--key-passphrase` protects the private key itself (used by
+gpg-agent when signing); `-ZipPassword`/`--zip-password` protects only the backup archive.
+
 ### Repository checks
 
 This kit installs machine and editor prerequisites; repositories keep their own pinned Node and
@@ -97,12 +150,22 @@ Code to discourage global package installs.
 
 ### Options
 
-| Option                  | Applies to                  | Effect                                      |
-| ----------------------- | --------------------------- | ------------------------------------------- |
-| `-Audit` / `--audit`    | runners and every installer | Detect and report only.                     |
-| `-SkipVSCodeSettings`   | `setup.ps1`                 | Leave editor settings alone for one run.    |
-| `-GitInstallDir <path>` | `setup.ps1`                 | Override `user.git.installDir` for one run. |
-| `-PythonVersion <x.y>`  | `setup.ps1`                 | Override `user.python.version` for one run. |
+| Option                  | Applies to                            | Effect                                                                                                   |
+| ----------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `-Audit` / `--audit`    | runners and every installer           | Detect and report only.                                                                                  |
+| `-SkipVSCodeSettings`   | `setup.ps1`                           | Leave editor settings alone for one run.                                                                 |
+| `-GitInstallDir <path>` | `setup.ps1`                           | Override `user.git.installDir` for one run.                                                              |
+| `-PythonVersion <x.y>`  | `setup.ps1`                           | Override `user.python.version` for one run.                                                              |
+| `-SkipUpgradeCheck`     | `setup.ps1` / `--skip-upgrade-check`  | Skip the upgrade check for one run (it runs by default).                                                 |
+| `-CheckUpgradesOnly`    | `setup.ps1` / `--check-upgrades-only` | Only check for newer versions; installs and applies nothing.                                             |
+| `-Uninstall`            | `setup.ps1` / `--uninstall`           | Remove tools this kit manages (winget/Homebrew). Combine with `-Audit` to preview. Git is never removed. |
+
+Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
+run-through, reporting newer versions with a new `[update]` tag - never applying them automatically.
+`-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
+Node.js, Python, PHP, PowerShell, and ShellCheck via the same package manager that installed them (winget
+on Windows, Homebrew on macOS/Linux); Git is intentionally excluded since removing it would also need to
+unwind the credential/identity config this kit writes.
 
 ## Audit output
 
@@ -123,16 +186,30 @@ Auditing (detect only - nothing will be installed or changed):
   [skip]    sync     user.vscode.settingsSync.syncAfterSetup is false
 
 Audit complete. Nothing was installed or changed. Re-run without -Audit to apply.
+
+Summary: 2 found, 2 would install, 2 skipped, 1 warning
+
+Recommendation: 2 change(s) would be made if you run the real setup:
+  - git cfg: would set credential.helper, credential.credentialStore, credential.guiPrompt
+  - Python: would install Python.Python.3.14 via winget
+Run this to apply them: .\setup.ps1
+1 item(s) need attention regardless (see [warn] lines above).
 ```
 
 The same vocabulary is used during a real run:
 
-| Status      | Meaning                                                        |
-| ----------- | -------------------------------------------------------------- |
-| `[found]`   | Already present and correct. Nothing was done.                 |
-| `[install]` | Something was changed or installed.                            |
-| `[skip]`    | Disabled in config, or not applicable on this platform.        |
-| `[warn]`    | Continued, but the result is degraded or needs your attention. |
+| Status      | Meaning                                                                   |
+| ----------- | ------------------------------------------------------------------------- |
+| `[found]`   | Already present and correct. Nothing was done.                            |
+| `[install]` | Something was changed or installed.                                       |
+| `[skip]`    | Disabled in config, or not applicable on this platform.                   |
+| `[warn]`    | Continued, but the result is degraded or needs your attention.            |
+| `[update]`  | A newer version is available. Reported only, never applied automatically. |
+| `[remove]`  | Uninstalled. Only ever appears with `-Uninstall` / `--uninstall`.         |
+
+Every run ends with a one-line `Summary:` tally of these tags. `-Audit` runs add a
+`Recommendation:` section: if anything is pending, it lists each planned change and the exact
+command to apply it (`.\setup.ps1` / `./setup.sh`); if nothing is pending, it says so instead.
 
 ## Layout
 
@@ -173,43 +250,45 @@ config file degrades to the documented default rather than failing the run.
 
 These are the supported knobs for routine use. They are safe to edit in a fork or personal copy.
 
-| Setting                                     | Default                                                                                                                                                                              | Purpose                                                                                                                               |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `user.install.git`                          | `true`                                                                                                                                                                               | Run the Git installer step.                                                                                                           |
-| `user.install.node`                         | `true`                                                                                                                                                                               | Run the Node.js/npm step.                                                                                                             |
-| `user.install.python`                       | `true`                                                                                                                                                                               | Run the Python step.                                                                                                                  |
-| `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                      |
-| `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                             |
-| `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                           |
-| `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                    |
-| `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                          |
-| `user.install.mcpServers`                   | `true`                                                                                                                                                                               | Reconcile MCP servers in `mcp.json`.                                                                                                  |
-| `user.git.installDir`                       | `""`                                                                                                                                                                                 | Windows PortableGit location. Empty uses `advanced.git.defaultInstallDir`.                                                            |
-| `user.git.forcePortable`                    | `false`                                                                                                                                                                              | Install PortableGit even when a system Git is on `PATH`. Left `false`, an existing Git is detected and the download is skipped.       |
-| `user.git.userName`                         | `""`                                                                                                                                                                                 | Applied via `git config --global user.name` when non-empty.                                                                           |
-| `user.git.userEmail`                        | `""`                                                                                                                                                                                 | Applied via `git config --global user.email` when non-empty.                                                                          |
-| `user.python.version`                       | `"3.14"`                                                                                                                                                                             | Single source of truth for Windows winget and macOS/Linux `uv`.                                                                       |
-| `user.python.allowGlobalPackageInstalls`    | `false`                                                                                                                                                                              | Written to VS Code as `python.globalModuleInstallation`; keep `false` to preserve the Python extension's virtual-environment warning. |
-| `user.python.recommendedVirtualEnvironment` | `".venv"`                                                                                                                                                                            | Documented environment folder recommendation for project-level dependencies.                                                          |
-| `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                               |
-| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                       |
-| `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                               |
-| `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                             |
-| `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                     |
-| `user.vscode.extensions.install`            | 17 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                            |
-| `user.vscode.extensions.block`              | 11 extensions                                                                                                                                                                        | Never installed. Reported as `[warn]` if already present.                                                                             |
-| `user.vscode.extensions.uninstallBlocked`   | `false`                                                                                                                                                                              | When `true`, blocked extensions that are installed are removed instead of just reported.                                              |
-| `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                         |
-| `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                |
-| `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                |
-| `user.mcp.block`                            | `[]`                                                                                                                                                                                 | Server IDs that should not be configured. Reported as `[warn]` if present.                                                            |
-| `user.mcp.removeBlocked`                    | `false`                                                                                                                                                                              | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                         |
-| `user.devcontainers.dockerAccess`           | `"outside-of-docker"`                                                                                                                                                                | `outside-of-docker`, `in-docker`, or `none`.                                                                                          |
-| `user.devcontainers.baseImage`              | `mcr.microsoft.com/devcontainers/base:ubuntu-24.04`                                                                                                                                  | Image used by the `devcontainer` snippet.                                                                                             |
-| `user.devcontainers.remoteUser`             | `"vscode"`                                                                                                                                                                           | `remoteUser` emitted by the snippet.                                                                                                  |
-| `user.devcontainers.features`               | common-utils, git, github-cli                                                                                                                                                        | Features always installed. The Docker feature is added from `dockerAccess`.                                                           |
-| `user.devcontainers.extensions`             | Copilot, Copilot Chat, PR, Actions, GitLens, EditorConfig, ESLint, Prettier, Ruff, Python, Pylance, debugpy, Markdownlint, Code Spell Checker, Markdown All in One, YAML, ShellCheck | Extensions always installed in a container.                                                                                           |
-| `user.devcontainers.settings`               | `copyGitConfig`, `gitCredentialHelperConfigLocation`, `cacheVolume`, `logLevel`                                                                                                      | Remaining `dev.containers.*` keys.                                                                                                    |
+| Setting                                     | Default                                                                                                                                                                              | Purpose                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `user.install.git`                          | `true`                                                                                                                                                                               | Run the Git installer step.                                                                                                            |
+| `user.install.node`                         | `true`                                                                                                                                                                               | Run the Node.js/npm step.                                                                                                              |
+| `user.install.python`                       | `true`                                                                                                                                                                               | Run the Python step.                                                                                                                   |
+| `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
+| `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                              |
+| `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                            |
+| `user.install.gpg`                          | `true`                                                                                                                                                                               | Run the GPG step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
+| `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                     |
+| `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                           |
+| `user.install.mcpServers`                   | `true`                                                                                                                                                                               | Reconcile MCP servers in `mcp.json`.                                                                                                   |
+| `user.checkUpgrades`                        | `true`                                                                                                                                                                               | Report newer versions (`[update]`) during every audit/install run. `-SkipUpgradeCheck` / `--skip-upgrade-check` overrides for one run. |
+| `user.git.installDir`                       | `""`                                                                                                                                                                                 | Windows PortableGit location. Empty uses `advanced.git.defaultInstallDir`.                                                             |
+| `user.git.forcePortable`                    | `false`                                                                                                                                                                              | Install PortableGit even when a system Git is on `PATH`. Left `false`, an existing Git is detected and the download is skipped.        |
+| `user.git.userName`                         | `""`                                                                                                                                                                                 | Applied via `git config --global user.name` when non-empty.                                                                            |
+| `user.git.userEmail`                        | `""`                                                                                                                                                                                 | Applied via `git config --global user.email` when non-empty.                                                                           |
+| `user.python.version`                       | `"3.14"`                                                                                                                                                                             | Single source of truth for Windows winget and macOS/Linux `uv`.                                                                        |
+| `user.python.allowGlobalPackageInstalls`    | `false`                                                                                                                                                                              | Written to VS Code as `python.globalModuleInstallation`; keep `false` to preserve the Python extension's virtual-environment warning.  |
+| `user.python.recommendedVirtualEnvironment` | `".venv"`                                                                                                                                                                            | Documented environment folder recommendation for project-level dependencies.                                                           |
+| `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                                |
+| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                        |
+| `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                                |
+| `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                              |
+| `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                      |
+| `user.vscode.extensions.install`            | 17 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                             |
+| `user.vscode.extensions.block`              | 11 extensions                                                                                                                                                                        | Never installed. Reported as `[warn]` if already present.                                                                              |
+| `user.vscode.extensions.uninstallBlocked`   | `false`                                                                                                                                                                              | When `true`, blocked extensions that are installed are removed instead of just reported.                                               |
+| `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                          |
+| `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                 |
+| `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                 |
+| `user.mcp.block`                            | `[]`                                                                                                                                                                                 | Server IDs that should not be configured. Reported as `[warn]` if present.                                                             |
+| `user.mcp.removeBlocked`                    | `false`                                                                                                                                                                              | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                          |
+| `user.devcontainers.dockerAccess`           | `"outside-of-docker"`                                                                                                                                                                | `outside-of-docker`, `in-docker`, or `none`.                                                                                           |
+| `user.devcontainers.baseImage`              | `mcr.microsoft.com/devcontainers/base:ubuntu-24.04`                                                                                                                                  | Image used by the `devcontainer` snippet.                                                                                              |
+| `user.devcontainers.remoteUser`             | `"vscode"`                                                                                                                                                                           | `remoteUser` emitted by the snippet.                                                                                                   |
+| `user.devcontainers.features`               | common-utils, git, github-cli                                                                                                                                                        | Features always installed. The Docker feature is added from `dockerAccess`.                                                            |
+| `user.devcontainers.extensions`             | Copilot, Copilot Chat, PR, Actions, GitLens, EditorConfig, ESLint, Prettier, Ruff, Python, Pylance, debugpy, Markdownlint, Code Spell Checker, Markdown All in One, YAML, ShellCheck | Extensions always installed in a container.                                                                                            |
+| `user.devcontainers.settings`               | `copyGitConfig`, `gitCredentialHelperConfigLocation`, `cacheVolume`, `logLevel`                                                                                                      | Remaining `dev.containers.*` keys.                                                                                                     |
 
 ### Shared defaults
 

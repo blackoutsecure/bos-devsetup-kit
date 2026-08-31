@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ensures ShellCheck is available for local Bash linting.
+# Ensures GPG is available for Git commit/tag signing.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -19,12 +19,12 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
-formula="$(devsetup_config advanced.shellcheck.homebrewFormula shellcheck)"
+formula="$(devsetup_config advanced.gpg.homebrewFormula gnupg)"
 
 if [[ $uninstall -eq 1 ]]; then
-	devsetup_uninstall_via_homebrew ShellCheck "$formula" "$audit" || true
+	devsetup_uninstall_via_homebrew GPG "$formula" "$audit" || true
 	exit 0
 fi
 
-devsetup_install_via_homebrew ShellCheck "$formula" shellcheck \
-	"Install it from https://www.shellcheck.net/." "$audit" 0 "$check_upgrades"
+devsetup_install_via_homebrew GPG "$formula" gpg \
+	"Install GnuPG from https://gnupg.org/download/." "$audit" 0 "$check_upgrades"

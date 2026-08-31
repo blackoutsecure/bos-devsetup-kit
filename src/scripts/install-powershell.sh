@@ -9,54 +9,27 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../config.sh
 . "$script_dir/../config.sh"
 
-mode="${1:-}"
 print_path=0
 audit=0
-case "$mode" in
-	--print-path) print_path=1 ;;
-	--audit) audit=1 ;;
-esac
+uninstall=0
+check_upgrades=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--print-path) print_path=1 ;;
+		--audit) audit=1 ;;
+		--uninstall) uninstall=1 ;;
+		--check-upgrades) check_upgrades=1 ;;
+		*) echo "Unknown option: $1" >&2; exit 2 ;;
+	esac
+	shift
+done
 
 formula="$(devsetup_config advanced.powershell.homebrewFormula powershell)"
-command_path=""
-if command -v pwsh >/dev/null 2>&1 && pwsh --version >/dev/null 2>&1; then
-	command_path="$(command -v pwsh)"
-fi
 
-if [[ $audit -eq 1 ]]; then
-	if [[ -n "$command_path" ]]; then
-		devsetup_status found PowerShell "$("$command_path" --version) at $command_path"
-	elif command -v brew >/dev/null 2>&1; then
-		devsetup_status install PowerShell "would install '$formula' via Homebrew"
-	else
-		devsetup_status warn PowerShell "missing and Homebrew is not installed"
-	fi
+if [[ $uninstall -eq 1 ]]; then
+	devsetup_uninstall_via_homebrew PowerShell "$formula" "$audit" || true
 	exit 0
 fi
 
-if [[ -z "$command_path" ]]; then
-	os="$(uname -s 2>/dev/null || printf '%s' "${MSYSTEM:-Windows}")"
-	if [[ "$os" != "Darwin" && "$os" != "Linux" ]]; then
-		printf 'PowerShell setup is unsupported on %s.\n' "$os" >&2
-		exit 1
-	fi
-	if ! devsetup_ensure_homebrew; then
-		printf 'PowerShell is unavailable and Homebrew could not be installed. Install it from https://learn.microsoft.com/powershell/.\n' >&2
-		exit 1
-	fi
-	devsetup_status install PowerShell "installing '$formula' via Homebrew (live output below, may take a few minutes)" >&2
-	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
-	command_path="$(command -v pwsh || true)"
-fi
-
-if [[ -z "$command_path" ]] || ! "$command_path" --version >/dev/null 2>&1; then
-	printf 'PowerShell setup failed. Open a new terminal and run setup again.\n' >&2
-	exit 1
-fi
-
-if [[ $print_path -eq 1 ]]; then
-	devsetup_status found PowerShell "$("$command_path" --version) at $command_path" >&2
-	printf '%s\n' "$command_path"
-else
-	devsetup_status found PowerShell "$("$command_path" --version) at $command_path"
-fi
+devsetup_install_via_homebrew PowerShell "$formula" pwsh \
+	"Install it from https://learn.microsoft.com/powershell/." "$audit" "$print_path" "$check_upgrades"

@@ -19,14 +19,25 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 
 audit=0
 print_path=0
+uninstall=0
+check_upgrades=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--audit) audit=1 ;;
 		--print-path) print_path=1 ;;
+		--uninstall) uninstall=1 ;;
+		--check-upgrades) check_upgrades=1 ;;
 		*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 	shift
 done
+
+if [[ $uninstall -eq 1 ]]; then
+	# Uninstall would also need to unwind global credential/identity config this
+	# script wrote, which isn't safe to automate. Leave Git out of --uninstall.
+	devsetup_status warn Git "uninstall is not supported; remove it via your OS package manager manually if needed"
+	exit 0
+fi
 
 os="$(uname -s)"
 formula="$(devsetup_config advanced.git.homebrewFormula git)"
@@ -36,6 +47,12 @@ if command -v git >/dev/null 2>&1; then
 	git_present=1
 else
 	git_present=0
+fi
+
+# Only the Linux/Homebrew-managed install is ours to report on; macOS's git comes
+# from Xcode Command Line Tools and is left to Apple's own update mechanism.
+if [[ $check_upgrades -eq 1 && $git_present -eq 1 && "$os" == "Linux" ]]; then
+	devsetup_check_homebrew_upgrade Git "$formula"
 fi
 
 if [[ $audit -eq 1 ]]; then

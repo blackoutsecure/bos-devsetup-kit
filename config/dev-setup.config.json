@@ -12,10 +12,12 @@
             "php": true,
             "powershell": true,
             "shellcheck": true,
+            "gpg": true,
             "vscodeSettings": true,
             "devcontainerDefaults": true,
             "mcpServers": true
         },
+        "checkUpgrades": true,
         "git": {
             "installDir": "",
             "forcePortable": false,
@@ -236,6 +238,16 @@
             "windowsSearchPaths": [
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\shellcheck.exe"
             ]
+        },
+        "gpg": {
+            "homebrewFormula": "gnupg",
+            "wingetPackageId": "GnuPG.Gpg4win",
+            "windowsSearchPaths": [
+                "%ProgramFiles(x86)%\\GnuPG\\bin\\gpg.exe",
+                "%ProgramFiles%\\GnuPG\\bin\\gpg.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\GnuPG\\bin\\gpg.exe"
+            ],
+            "keyExpiry": "2y"
         },
         "vscode": {
             "profileDirectories": {

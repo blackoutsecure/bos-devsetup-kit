@@ -9,54 +9,27 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../config.sh
 . "$script_dir/../config.sh"
 
-mode="${1:-}"
 print_path=0
 audit=0
-case "$mode" in
-	--print-path) print_path=1 ;;
-	--audit) audit=1 ;;
-esac
+uninstall=0
+check_upgrades=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--print-path) print_path=1 ;;
+		--audit) audit=1 ;;
+		--uninstall) uninstall=1 ;;
+		--check-upgrades) check_upgrades=1 ;;
+		*) echo "Unknown option: $1" >&2; exit 2 ;;
+	esac
+	shift
+done
 
 formula="$(devsetup_config advanced.php.homebrewFormula php)"
-php_command=""
-if command -v php >/dev/null 2>&1 && php --version >/dev/null 2>&1; then
-	php_command="$(command -v php)"
-fi
 
-if [[ $audit -eq 1 ]]; then
-	if [[ -n "$php_command" ]]; then
-		devsetup_status found PHP "$("$php_command" --version | head -n 1) at $php_command"
-	elif command -v brew >/dev/null 2>&1; then
-		devsetup_status install PHP "would install '$formula' via Homebrew"
-	else
-		devsetup_status warn PHP "missing and Homebrew is not installed"
-	fi
+if [[ $uninstall -eq 1 ]]; then
+	devsetup_uninstall_via_homebrew PHP "$formula" "$audit" || true
 	exit 0
 fi
 
-if [[ -z "$php_command" ]]; then
-	os="$(uname -s 2>/dev/null || printf '%s' "${MSYSTEM:-Windows}")"
-	if [[ "$os" != "Darwin" && "$os" != "Linux" ]]; then
-		printf 'PHP setup is unsupported on %s.\n' "$os" >&2
-		exit 1
-	fi
-	if ! devsetup_ensure_homebrew; then
-		printf 'PHP is unavailable and Homebrew could not be installed. Install PHP from https://www.php.net/downloads.php.\n' >&2
-		exit 1
-	fi
-	devsetup_status install PHP "installing '$formula' via Homebrew (live output below, may take a few minutes)" >&2
-	NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
-	php_command="$(command -v php || true)"
-fi
-
-if [[ -z "$php_command" ]] || ! "$php_command" --version >/dev/null 2>&1; then
-	printf 'PHP setup failed. Open a new terminal and run setup again.\n' >&2
-	exit 1
-fi
-
-if [[ $print_path -eq 1 ]]; then
-	devsetup_status found PHP "$("$php_command" --version | head -n 1) at $php_command" >&2
-	printf '%s\n' "$php_command"
-else
-	devsetup_status found PHP "$("$php_command" --version | head -n 1) at $php_command"
-fi
+devsetup_install_via_homebrew PHP "$formula" php \
+	"Install PHP from https://www.php.net/downloads.php." "$audit" "$print_path" "$check_upgrades"
