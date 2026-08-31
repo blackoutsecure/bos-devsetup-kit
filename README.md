@@ -11,6 +11,9 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 - **Audit first.** `setup.ps1 -Audit` / `setup.sh --audit` reports what would change and writes nothing.
 - **One config.** Every tunable lives in [`config/dev-setup.config.json`](config/dev-setup.config.json).
 - **Idempotent.** Re-running is safe; values are compared before they are written.
+- **Color-coded.** Each line is tagged `[found]` (green), `[install]` (cyan), `[warn]` (yellow), or
+  `[skip]` (grey) — identically across PowerShell, bash, and the Python VS Code applier. Colors are
+  suppressed for `NO_COLOR`, non-TTY output, and are always on under `GITHUB_ACTIONS`.
 
 ## Requirements
 

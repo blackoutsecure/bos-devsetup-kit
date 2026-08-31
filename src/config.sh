@@ -113,8 +113,30 @@ devsetup_ensure_homebrew() {
 #   install - something is about to change
 #   skip    - disabled in config, or not applicable on this platform
 #   warn    - proceeded, but the result is degraded
+#
+# Colors honour the de-facto NO_COLOR standard (https://no-color.org) and
+# only render when the destination is a TTY or the GitHub Actions log
+# surface, matching the palette bos-code-scanning-kit uses for severities.
+_DEVSETUP_RESET=$'\033[0m'
+devsetup__color_enabled() {
+	[[ -n "${NO_COLOR:-}" ]] && return 1
+	[[ "${GITHUB_ACTIONS:-}" == "true" ]] && return 0
+	[[ -t 1 ]]
+}
+
 devsetup_status() {
-	printf '  %-9s %-8s %s\n' "[$1]" "$2" "${3-}"
+	local state="$1" component="$2" detail="${3-}" color="" tag
+	case "$state" in
+		found) color=$'\033[32m' ;;   # green   - already satisfied
+		install) color=$'\033[36m' ;; # cyan    - change in progress
+		warn) color=$'\033[33m' ;;    # yellow  - degraded but proceeded
+		skip) color=$'\033[90m' ;;    # grey    - disabled or n/a
+	esac
+	tag="$(printf '%-9s' "[$state]")"
+	if [[ -n "$color" ]] && devsetup__color_enabled; then
+		tag="${color}${tag}${_DEVSETUP_RESET}"
+	fi
+	printf '  %s %-8s %s\n' "$tag" "$component" "$detail"
 }
 
 # Reports git identity state identically in audit and apply runs.

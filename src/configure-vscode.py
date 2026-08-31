@@ -30,9 +30,31 @@ DEFAULT_CONFIG = REPO_ROOT / "config" / "dev-setup.config.json"
 OS_KEYS = {"Windows": "windows", "Darwin": "macos"}
 
 
+_SEV_COLOR = {
+    "found": "\033[32m",    # green  - already satisfied
+    "install": "\033[36m", # cyan   - change in progress
+    "warn": "\033[33m",    # yellow - degraded but proceeded
+    "skip": "\033[90m",    # grey   - disabled or n/a
+}
+_RESET = "\033[0m"
+
+
+def _color_enabled() -> bool:
+    """Match the NO_COLOR / GITHUB_ACTIONS / TTY rules used across the toolkit."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        return True
+    return sys.stdout.isatty()
+
+
 def status(state: str, component: str, detail: str = "") -> None:
     """Match the audit line format used by config.ps1 and config.sh."""
-    print(f"  {'[' + state + ']':<9} {component:<8} {detail}")
+    tag = f"{'[' + state + ']':<9}"
+    color = _SEV_COLOR.get(state)
+    if color and _color_enabled():
+        tag = f"{color}{tag}{_RESET}"
+    print(f"  {tag} {component:<8} {detail}")
 
 
 def get(config: dict, key: str, default: Any = None) -> Any:
