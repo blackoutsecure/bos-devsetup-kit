@@ -220,7 +220,10 @@
         },
         "php": {
             "homebrewFormula": "php",
-            "wingetPackageId": "PHP.PHP"
+            "wingetPackageId": "PHP.PHP.8.5",
+            "windowsSearchPaths": [
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\php.exe"
+            ]
         },
         "powershell": {
             "homebrewFormula": "powershell",
