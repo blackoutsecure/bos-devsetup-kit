@@ -23,7 +23,7 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 | macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, and PowerShell.                              |
 | Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, and PowerShell. |
 
-No administrator or root access is required at any point. WSL is never installed or invoked.
+No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
 ## Quick start
 
@@ -51,6 +51,26 @@ Run an audit first to see what would happen:
 ```
 
 Audit mode installs nothing, writes no files, and does not touch git config or `PATH`.
+
+### Optional WSL user setup
+
+`setup-wsl.ps1` is a separate, opt-in helper for an existing WSL distribution that incorrectly starts as `root`.
+It never installs WSL or a distribution. Audit first:
+
+```powershell
+.\setup-wsl.ps1 -Audit
+```
+
+To create or configure a non-root default user with passwordless `sudo`, run:
+
+```powershell
+.\setup-wsl.ps1 -Configure -UserName <linux-user>
+```
+
+Pass `-Distribution <name>` to target a specific installed distribution. Configuration restarts WSL, ending active
+Linux processes, and is intended for development environments that need non-root access plus `sudo`, such as
+loop-device integration tests. A default user that already has a writable home, executable login shell, and
+passwordless `sudo` is reported as found and left unchanged, including with `-Configure`.
 
 The setup also installs the ShellCheck CLI by default, so the local Bash lint
 checks used by the Blackout Secure repositories can run without a separate
@@ -172,7 +192,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.python.allowGlobalPackageInstalls`    | `false`                                                                                                                                                                              | Written to VS Code as `python.globalModuleInstallation`; keep `false` to preserve the Python extension's virtual-environment warning. |
 | `user.python.recommendedVirtualEnvironment` | `".venv"`                                                                                                                                                                            | Documented environment folder recommendation for project-level dependencies.                                                          |
 | `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                               |
-| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                      |
+| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                       |
 | `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                               |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                             |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                     |
