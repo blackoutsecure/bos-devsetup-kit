@@ -96,7 +96,7 @@ function Write-DevSetupStatus {
         "remove"  { "Red" }
     }
     Write-Host ("  {0,-9} " -f "[$State]") -ForegroundColor $color -NoNewline
-    Write-Host ("{0,-8} {1}" -f $Component, $Detail)
+    Write-Host ("{0,-24} {1}" -f $Component, $Detail)
 
     # DEVSETUP_STATUS_LOG lets the top-level runner tally every line, including
     # ones emitted by configure-vscode.py in a separate process later in the run.
@@ -141,21 +141,66 @@ function Write-DevSetupSummary {
     Write-Host ""
     Write-Host $summaryLine
 
+    Write-Host ""
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    Write-Host "  RESULTS REPORT" -ForegroundColor Cyan
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    if ($LogPath -and (Test-Path $LogPath)) {
+        foreach ($line in Get-Content $LogPath) {
+            $parts = $line -split '\|', 3
+            if ($parts.Count -ge 2) {
+                $detail = if ($parts.Count -eq 3) { " - $($parts[2])" } else { "" }
+                $color = switch ($parts[0]) {
+                    "found"   { "Green" }
+                    "install" { "Cyan" }
+                    "skip"    { "DarkGray" }
+                    "warn"    { "Yellow" }
+                    "update"  { "Magenta" }
+                    "remove"  { "Red" }
+                    default   { "White" }
+                }
+                Write-Host ("  [{0}]" -f $parts[0]) -ForegroundColor $color -NoNewline
+                Write-Host (" {0,-24} {1}" -f $parts[1], $detail)
+            }
+        }
+    } else {
+        Write-Host "  No status entries were recorded."
+    }
+
     if ($Audit) {
         Write-Host ""
+        Write-Host ("=" * 78) -ForegroundColor DarkCyan
+        Write-Host "  RECOMMENDATION" -ForegroundColor Cyan
+        Write-Host ("=" * 78) -ForegroundColor DarkCyan
+        Write-Host ""
         if ($pending.Count -eq 0) {
-            Write-Host "Recommendation: no changes needed, environment already matches config/dev-setup.config.json. No need to run without -Audit."
+            Write-Host "  STATUS: No changes needed." -ForegroundColor Green
+            Write-Host "  The environment already matches config/dev-setup.config.json."
+            Write-Host "  No further action is required."
         } else {
-            Write-Host "Recommendation: $($pending.Count) change(s) would be made if you run the real setup:"
-            foreach ($item in $pending) {
-                Write-Host "  - $item"
+            Write-Host "  STATUS: $($pending.Count) change(s) pending." -ForegroundColor Yellow
+            Write-Host "  The following actions would run without -Audit:"
+            for ($index = 0; $index -lt $pending.Count; $index++) {
+                Write-Host ("    {0}. [install]" -f ($index + 1)) -ForegroundColor Cyan -NoNewline
+                Write-Host (" {0}" -f $pending[$index])
             }
-            Write-Host "Run this to apply them: .\setup.ps1"
+            Write-Host ""
+            Write-Host "  APPLY: .\setup.ps1" -ForegroundColor Cyan
         }
         if ($counts.warn -gt 0) {
-            Write-Host "$($counts.warn) item(s) need attention regardless (see [warn] lines above)."
+            Write-Host ""
+            Write-Host "  ATTENTION: $($counts.warn) item(s) need attention." -ForegroundColor Yellow
+            Write-Host "  Review the [warn] entries in the results report above."
         }
     }
+
+    Write-Host ""
+    Write-Host ""
+    Write-Host ("-" * 78) -ForegroundColor DarkCyan
+    Write-Host "  END OF REPORT" -ForegroundColor Cyan
+    Write-Host ("-" * 78) -ForegroundColor DarkCyan
+    Write-Host ""
+    Write-Host ""
 }
 
 function Get-DevSetupVSCodeProfilePath {

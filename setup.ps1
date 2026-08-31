@@ -25,6 +25,69 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "src\config.ps1")
+
+function Write-DevSetupSection {
+    param([Parameter(Mandatory)][string]$Title)
+
+    Write-Host ""
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    Write-Host ("  {0}" -f $Title.ToUpperInvariant()) -ForegroundColor Cyan
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+}
+
+function Write-DevSetupHeader {
+    param([Parameter(Mandatory)]$Config, [Parameter(Mandatory)][string]$Mode)
+
+    Write-DevSetupSection "Blackout Secure Dev Setup Kit"
+    Write-Host "  Author:          Blackout Secure"
+    Write-Host "  Standard:        Config-driven developer environment setup"
+    Write-Host "  Standard version: 1"
+    Write-Host "  Script:           setup.ps1"
+    Write-Host "  PowerShell:       $($PSVersionTable.PSVersion)"
+    Write-Host "  Run mode:         $Mode"
+    Write-Host "  Repository root:  $DevSetupRoot"
+    Write-Host "  Configuration:    $DevSetupConfigPath"
+    Write-Host "  Python target:    $(Get-DevSetupValue $Config 'user.python.version' '3.14')"
+}
+
+function Write-DevSetupConfiguration {
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)][string]$GitInstallDir,
+        [Parameter(Mandatory)][string]$PythonVersion,
+        [Parameter(Mandatory)][bool]$ConfigureVSCode,
+        [Parameter(Mandatory)][bool]$CheckUpgrades
+    )
+
+    Write-DevSetupSection "Configuration"
+    Write-Host "  Resolved runtime variables:"
+    Write-Host "    GitInstallDir   = $GitInstallDir"
+    Write-Host "    PythonVersion   = $PythonVersion"
+    Write-Host "    ConfigureVSCode = $ConfigureVSCode"
+    Write-Host "    CheckUpgrades   = $CheckUpgrades"
+    Write-Host "    Audit           = $Audit"
+    Write-Host "    Uninstall       = $Uninstall"
+    Write-Host "    Config file     = $DevSetupConfigPath"
+    Write-Host ""
+    Write-Host "  Loaded configuration:"
+    $profiles = @(Get-DevSetupValue $Config 'user.vscode.profiles' @('stable', 'insiders'))
+    $extensions = @(Get-DevSetupValue $Config 'user.vscode.extensions.install' @())
+    $mcpServers = Get-DevSetupValue $Config 'user.mcp.servers' ([pscustomobject]@{})
+    $mcpCount = @($mcpServers.PSObject.Properties).Count
+    Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
+    Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
+    Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
+    Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $false)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github'))"
+    Write-Host "    MCP servers:     $mcpCount configured"
+    Write-Host "    Dev containers:  defaults=$((Get-DevSetupValue $Config 'user.install.devcontainerDefaults' $true)), base=$((Get-DevSetupValue $Config 'user.devcontainers.baseImage' 'not configured'))"
+    Write-Host "    Config sections: user, advanced"
+}
+
+try {
+    Clear-Host -ErrorAction Stop
+} catch {
+    # Non-interactive hosts may not provide a console handle to clear.
+}
 $configPath = $DevSetupConfigPath
 $config = Get-DevSetupConfig $configPath
 $scripts = Join-Path $PSScriptRoot "src\scripts"
@@ -47,6 +110,11 @@ $gitExe = $null
 $pythonExe = $null
 $phpExe = $null
 $powerShellExe = $null
+$runMode = if ($Uninstall) { "Uninstall" } elseif ($CheckUpgradesOnly) { "Upgrade check" } elseif ($Audit) { "Audit" } else { "Setup" }
+
+Write-DevSetupHeader -Config $config -Mode $runMode
+Write-DevSetupConfiguration -Config $config -GitInstallDir $GitInstallDir -PythonVersion $PythonVersion -ConfigureVSCode $configureVSCode -CheckUpgrades $checkUpgrades
+Write-DevSetupSection "Live Activity"
 
 if ($Uninstall) {
     Write-Host "Uninstalling (each step only removes tools this kit manages; Git is never removed):"

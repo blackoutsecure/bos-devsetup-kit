@@ -183,7 +183,7 @@ Auditing (detect only - nothing will be installed or changed):
              - python.defaultInterpreterPath
              - python.terminal.activateEnvironment
   [skip]    validate dry-run; files were not changed
-  [skip]    sync     user.vscode.settingsSync.syncAfterSetup is false
+  [skip]    VS Code User Sync user.vscode.settingsSync.syncAfterSetup is false
 
 Audit complete. Nothing was installed or changed. Re-run without -Audit to apply.
 

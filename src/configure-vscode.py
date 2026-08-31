@@ -546,7 +546,7 @@ def sync_settings(config: dict, dry_run: bool) -> None:
     """Request VS Code Settings Sync only when GitHub sync is already enabled."""
     sync_config = get(config, "user.vscode.settingsSync", {})
     if not get(sync_config, "syncAfterSetup", False):
-        status("skip", "sync", "user.vscode.settingsSync.syncAfterSetup is false")
+        status("skip", "VS Code User Sync", "user.vscode.settingsSync.syncAfterSetup is false")
         return
 
     clis = get(config, "advanced.vscode.extensionCli", {})
@@ -566,26 +566,26 @@ def sync_settings(config: dict, dry_run: bool) -> None:
         provider = str(provider or "").strip().lower()
 
         if not enabled:
-            status("skip", "sync", f"Settings Sync is not enabled ({profile})")
+            status("skip", "VS Code User Sync", f"Settings Sync is not enabled ({profile})")
             continue
         if required_provider and provider != required_provider.lower():
-            status("skip", "sync", f"provider is {provider or 'unknown'}, not {required_provider}")
+            status("skip", "VS Code User Sync", f"provider is {provider or 'unknown'}, not {required_provider}")
             continue
 
         command = clis.get(profile)
         cli = find_code_cli(config, profile, command) if command else None
         if not cli:
-            status("skip", "sync", f"'{command}' CLI not on PATH ({profile})")
+            status("skip", "VS Code User Sync", f"'{command}' CLI not on PATH ({profile})")
             continue
         if dry_run:
-            status("install", "sync", f"would request Settings Sync ({profile})")
+            status("install", "VS Code User Sync", f"would request Settings Sync ({profile})")
             continue
 
         code, output = run_cli(cli, *cli_args)
         if code == 0:
-            status("install", "sync", f"requested GitHub Settings Sync ({profile})")
+            status("install", "VS Code User Sync", f"requested GitHub Settings Sync ({profile})")
         else:
-            status("warn", "sync", f"sync request failed: {output.strip()[:120]}")
+            status("warn", "VS Code User Sync", f"sync request failed: {output.strip()[:120]}")
 
 
 def manage_mcp(config: dict, dry_run: bool) -> None:
