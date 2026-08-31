@@ -52,6 +52,10 @@ Run an audit first to see what would happen:
 
 Audit mode installs nothing, writes no files, and does not touch git config or `PATH`.
 
+The setup also installs the ShellCheck CLI by default, so the local Bash lint
+checks used by the Blackout Secure repositories can run without a separate
+tool installation. Set `user.install.shellcheck` to `false` to skip it.
+
 ### Repository checks
 
 This kit installs machine and editor prerequisites; repositories keep their own pinned Node and
@@ -96,7 +100,7 @@ Auditing (detect only - nothing will be installed or changed):
              - python.defaultInterpreterPath
              - python.terminal.activateEnvironment
   [skip]    validate dry-run; files were not changed
-  [install] sync     would request Settings Sync (stable)
+  [skip]    sync     user.vscode.settingsSync.syncAfterSetup is false
 
 Audit complete. Nothing was installed or changed. Re-run without -Audit to apply.
 ```
@@ -156,6 +160,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.install.python`                       | `true`                                                                                                                                                                               | Run the Python step.                                                                                                                  |
 | `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                      |
 | `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                             |
+| `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                           |
 | `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                    |
 | `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                          |
 | `user.install.mcpServers`                   | `true`                                                                                                                                                                               | Reconcile MCP servers in `mcp.json`.                                                                                                  |
@@ -167,7 +172,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.python.allowGlobalPackageInstalls`    | `false`                                                                                                                                                                              | Written to VS Code as `python.globalModuleInstallation`; keep `false` to preserve the Python extension's virtual-environment warning. |
 | `user.python.recommendedVirtualEnvironment` | `".venv"`                                                                                                                                                                            | Documented environment folder recommendation for project-level dependencies.                                                          |
 | `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                               |
-| `user.vscode.settingsSync.syncAfterSetup`   | `true`                                                                                                                                                                               | After successful validation, request VS Code Settings Sync when it is already enabled.                                                |
+| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                      |
 | `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                               |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                             |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                     |

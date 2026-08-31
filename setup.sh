@@ -96,6 +96,12 @@ else
 	devsetup_status skip PowerShell "user.install.powershell is false"
 fi
 
+if devsetup_enabled user.install.shellcheck; then
+	"${BASH:-bash}" "$scripts/install-shellcheck.sh" $audit_flag
+else
+	devsetup_status skip ShellCheck "user.install.shellcheck is false"
+fi
+
 if [[ -z "$python_command" ]]; then
 	for candidate in python3 python; do
 		if command -v "$candidate" >/dev/null 2>&1 && "$candidate" --version >/dev/null 2>&1; then
@@ -135,6 +141,6 @@ if [[ $audit -eq 1 ]]; then
 else
 	echo "Setup complete. WSL was not installed or invoked."
 	if devsetup_enabled user.install.vscodeSettings; then
-		echo "VS Code settings were validated; GitHub Settings Sync was requested when already enabled."
+		echo "VS Code settings were validated. Settings Sync was not requested unless enabled in config."
 	fi
 fi

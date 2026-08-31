@@ -79,6 +79,12 @@ if (Get-DevSetupValue $config "user.install.powershell" $true) {
     Write-DevSetupStatus skip "PowerShell" "user.install.powershell is false"
 }
 
+if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
+    & (Join-Path $scripts "install-shellcheck.ps1") -Audit:$Audit
+} else {
+    Write-DevSetupStatus skip "ShellCheck" "user.install.shellcheck is false"
+}
+
 if (-not $configureVSCode) {
     $reason = if ($SkipVSCodeSettings) { "-SkipVSCodeSettings was passed" } else { "user.install.vscodeSettings is false" }
     Write-DevSetupStatus skip "vscode" $reason
@@ -115,6 +121,6 @@ if ($Audit) {
 } else {
     Write-Host "Setup complete. WSL was not installed or invoked."
     if ($configureVSCode) {
-        Write-Host "VS Code settings were validated; GitHub Settings Sync was requested when already enabled."
+        Write-Host "VS Code settings were validated. Settings Sync was not requested unless enabled in config."
     }
 }

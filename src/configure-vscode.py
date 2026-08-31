@@ -538,7 +538,7 @@ def read_state_value(config: dict, user_dir: Path, key: str) -> Any:
 def sync_settings(config: dict, dry_run: bool) -> None:
     """Request VS Code Settings Sync only when GitHub sync is already enabled."""
     sync_config = get(config, "user.vscode.settingsSync", {})
-    if not get(sync_config, "syncAfterSetup", True):
+    if not get(sync_config, "syncAfterSetup", False):
         status("skip", "sync", "user.vscode.settingsSync.syncAfterSetup is false")
         return
 
