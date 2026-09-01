@@ -19,7 +19,7 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 | Platform        | Needs                                                                                                                      |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and GPG (falls back to `uv` for Python).     |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, and ShellCheck (falls back to `uv` for Python).          |
 | macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, and GPG.                              |
 | Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, and GPG. |
 
@@ -76,19 +76,19 @@ The setup also installs the ShellCheck CLI by default, so the local Bash lint
 checks used by the Blackout Secure repositories can run without a separate
 tool installation. Set `user.install.shellcheck` to `false` to skip it.
 
-GPG is installed by default too, so `git` commit/tag signing works without a separate
-tool installation. Set `user.install.gpg` to `false` to skip it. Unlike this kit's other
-Windows installers, Gpg4win's WinGet package does not support a per-user-only install on
-every machine; if the per-user install fails, run `winget install --id GnuPG.Gpg4win -e`
-yourself and accept any elevation prompt, or install manually from
-[gpg4win.org](https://www.gpg4win.org/).
+GPG is available by default too, so `git` commit/tag signing works without a separate
+tool installation. Set `user.install.gpg` to `false` to skip its configuration. On Windows,
+the setup uses the GPG executable bundled with user-local PortableGit, adds its directory to
+the user `PATH`, and writes the resolved path to Git's global `gpg.program`; it does not install
+the administrator-elevated Gpg4win package. macOS and Linux continue to install GPG through
+the user-local Homebrew flow.
 
 ### Optional GPG signing identity
 
 `manage-gpg-key.ps1` / `manage-gpg-key.sh` are separate, opt-in helpers that generate, export, or
 import a GPG key for `git` commit/tag signing. They're separate from `setup.ps1`/`setup.sh` because
 they change real state: a new secret key in your keyring, and your global git signing config
-(`user.signingkey`, `commit.gpgsign`, `tag.gpgsign`). Nothing here runs as part of the main setup.
+(`user.signingkey`, `commit.gpgsign`, `tag.gpgsign`, and `gpg.program`). Nothing here runs as part of the main setup.
 Audit first:
 
 ```powershell
@@ -258,7 +258,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
 | `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                              |
 | `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                            |
-| `user.install.gpg`                          | `true`                                                                                                                                                                               | Run the GPG step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
+| `user.install.gpg`                          | `true`                                                                                                                                                                               | Run the GPG step. macOS/Linux use Homebrew; Windows configures PortableGit's bundled GPG.                                              |
 | `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                     |
 | `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                           |
 | `user.install.mcpServers`                   | `true`                                                                                                                                                                               | Reconcile MCP servers in `mcp.json`.                                                                                                   |
@@ -309,6 +309,7 @@ are not meant for day-to-day editing.
 | `advanced.git.credential.windows.guiPrompt`                       | `false`                                    | Keeps GCM from opening blocking dialogs.                                                                                    |
 | `advanced.git.credential.macos.helper`                            | `osxkeychain`                              | Applied when the helper exists.                                                                                             |
 | `advanced.git.credential.linux.helper`                            | `manager`                                  | Applied when the helper exists.                                                                                             |
+| `advanced.gpg.portableGitRelativePath`                            | `usr\bin\gpg.exe`                          | GPG executable within the user-local PortableGit directory on Windows.                                                      |
 | `advanced.python.wingetPackageId`                                 | `Python.Python.{version}`                  | `{version}` is replaced by `user.python.version`.                                                                           |
 | `advanced.python.windowsInstallRoot`                              | `%LOCALAPPDATA%\Programs\Python`           | Where an existing interpreter is discovered.                                                                                |
 | `advanced.python.uvInstallUrl.windows`                            | `https://astral.sh/uv/install.ps1`         | uv bootstrap, used only if winget is unavailable.                                                                           |

@@ -241,12 +241,7 @@
         },
         "gpg": {
             "homebrewFormula": "gnupg",
-            "wingetPackageId": "GnuPG.Gpg4win",
-            "windowsSearchPaths": [
-                "%ProgramFiles(x86)%\\GnuPG\\bin\\gpg.exe",
-                "%ProgramFiles%\\GnuPG\\bin\\gpg.exe",
-                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\GnuPG\\bin\\gpg.exe"
-            ],
+            "portableGitRelativePath": "usr\\bin\\gpg.exe",
             "keyExpiry": "2y"
         },
         "vscode": {

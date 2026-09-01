@@ -232,8 +232,6 @@ if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
 }
 
 if (Get-DevSetupValue $config "user.install.gpg" $true) {
-    # Unlike the other WinGet installers, Gpg4win doesn't support a per-user-only
-    # install on every machine, so a failure here shouldn't abort the rest of setup.
     try {
         & (Join-Path $scripts "install-gpg.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
     } catch {

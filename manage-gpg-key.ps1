@@ -50,9 +50,14 @@ function New-DevSetupRandomSecret {
 }
 
 function Get-DevSetupGpgExe {
+    $configuredGpg = & git config --global --get gpg.program 2>$null
+    if ($configuredGpg -and (Test-Path $configuredGpg)) {
+        return (Resolve-Path $configuredGpg).Path
+    }
+
     $gpg = Get-Command gpg.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
     if (-not $gpg) {
-        throw "gpg.exe was not found on PATH. Run .\setup.ps1 first (it installs GPG), or install Gpg4win from https://www.gpg4win.org/."
+        throw "gpg.exe was not found. Run .\setup.ps1 first so PortableGit's user-local GPG is configured."
     }
     return $gpg
 }
@@ -73,11 +78,13 @@ function Get-DevSetupSigningKeyId {
 }
 
 if ($Audit) {
-    $gpgCommand = Get-Command gpg.exe -ErrorAction SilentlyContinue
-    if (-not $gpgCommand) {
-        Write-DevSetupStatus warn "GPG key" "gpg.exe not found; run .\setup.ps1 first"
+    try {
+        $gpg = Get-DevSetupGpgExe
+    } catch {
+        Write-DevSetupStatus warn "GPG key" $_.Exception.Message
         return
     }
+    Write-DevSetupStatus found "GPG key" "using $gpg"
     $signingKey = Get-DevSetupSigningKeyId
     if ($signingKey) {
         Write-DevSetupStatus found "GPG key" "git signs commits/tags with $signingKey"

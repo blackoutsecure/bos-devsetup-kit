@@ -4,31 +4,60 @@ param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
 $config = Get-DevSetupConfig
-$packageId = Get-DevSetupValue $config "advanced.gpg.wingetPackageId" "GnuPG.Gpg4win"
+$gitInstallDir = Expand-DevSetupPath (Get-DevSetupValue $config "user.git.installDir" (
+    Get-DevSetupValue $config "advanced.git.defaultInstallDir" "$env:USERPROFILE\PortableGit"))
+$portableGitRelativePath = Get-DevSetupValue $config "advanced.gpg.portableGitRelativePath" "usr\bin\gpg.exe"
+$portableGpg = Join-Path $gitInstallDir $portableGitRelativePath
+$portableGit = Join-Path $gitInstallDir "cmd\git.exe"
 
 if ($Uninstall) {
-    Uninstall-DevSetupWingetTool -Component "GPG" -PackageId $packageId -Audit:$Audit
+    Write-DevSetupStatus warn "GPG" "GPG is bundled with PortableGit; uninstall is not supported separately"
     return
 }
 
-$find = {
-    Find-DevSetupWingetExecutable $config "gpg.exe" "advanced.gpg.windowsSearchPaths" $packageId @(
-        "%ProgramFiles(x86)%\GnuPG\bin\gpg.exe",
-        "%ProgramFiles%\GnuPG\bin\gpg.exe",
-        "%LOCALAPPDATA%\Microsoft\WinGet\Packages\{wingetPackageId}_*\GnuPG\bin\gpg.exe"
-    )
+$gpg = if (Test-Path $portableGpg) {
+    $portableGpg
+} else {
+    Get-Command gpg.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
 }
 
-$gpg = Install-DevSetupWingetTool -Component "GPG" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
-    -ManualInstallHint "Gpg4win's WinGet package does not support a per-user-only install on every machine. Run 'winget install --id $packageId -e' yourself and accept any elevation prompt, or install manually from https://www.gpg4win.org/."
+if (-not $gpg) {
+    $message = "GPG was not found. Enable user.install.git so setup can install PortableGit, which includes GPG without administrator rights."
+    if ($Audit) {
+        Write-DevSetupStatus warn "GPG" $message
+        return
+    }
+    throw $message
+}
 
-if ($Audit) { return }
+$git = if (Test-Path $portableGit) {
+    $portableGit
+} else {
+    Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+}
+if (-not $git) { throw "Git was not found, so the global gpg.program setting cannot be updated." }
 
-# Gpg4win's installer usually updates PATH itself, but per-user winget installs don't always
-# take effect in the current session, so make gpg usable here the same way ShellCheck is.
+$configuredGpg = & $git config --global --get gpg.program 2>$null
+
+if ($Audit) {
+    Write-DevSetupStatus found "GPG" "$(& $gpg --version | Select-Object -First 1) at $gpg"
+    if ($configuredGpg -ne $gpg) {
+        Write-DevSetupStatus install "GPG cfg" "would set global gpg.program to $gpg"
+    } else {
+        Write-DevSetupStatus found "GPG cfg" "global gpg.program already points to $gpg"
+    }
+    return
+}
+
 $gpgDirectory = Split-Path -Parent $gpg
 $env:Path = "$gpgDirectory;$env:Path"
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$gpgDirectory*") {
-    [Environment]::SetEnvironmentVariable("Path", "$gpgDirectory;$userPath", "User")
+Add-DevSetupUserPath $gpgDirectory -Prepend
+
+if ($configuredGpg -ne $gpg) {
+    & $git config --global gpg.program $gpg
+    Write-DevSetupStatus install "GPG cfg" "set global gpg.program to $gpg"
+} else {
+    Write-DevSetupStatus found "GPG cfg" "global gpg.program already points to $gpg"
 }
+
+Write-DevSetupStatus found "GPG" "$(& $gpg --version | Select-Object -First 1) at $gpg"
