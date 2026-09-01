@@ -1,5 +1,5 @@
 <# Ensures ShellCheck is available for local Bash linting. #>
-param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
+param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades, [switch]$AllowAdminInstall)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
@@ -18,7 +18,7 @@ $find = {
 }
 
 $shellCheck = Install-DevSetupWingetTool -Component "ShellCheck" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
-    -ManualInstallHint "Install it from https://www.shellcheck.net/."
+    -AllowAdminInstall:$AllowAdminInstall -ManualInstallHint "Install it from https://www.shellcheck.net/."
 
 if ($Audit) { return }
 

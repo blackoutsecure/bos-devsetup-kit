@@ -11,7 +11,8 @@ param(
     [switch]$ConfigureVSCode,
     [switch]$Audit,
     [switch]$Uninstall,
-    [switch]$CheckUpgrades
+    [switch]$CheckUpgrades,
+    [switch]$AllowAdminInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,8 +89,17 @@ if ($Audit) {
 if (-not $pythonExe) {
     $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
     if ($wingetCommand) {
-        Write-DevSetupStatus install "Python" "installing $wingetPackageId via winget (per-user, no admin, no GUI)"
-        & winget.exe install --id $wingetPackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
+        if ($AllowAdminInstall -and -not (Test-DevSetupProcessElevated)) {
+            throw "Python was allowed to install as administrator, but this process is not elevated. Re-run setup from an elevated terminal, or remove Python from -AllowAdminInstallFor to retry per-user setup. Install Python from https://www.python.org/downloads/."
+        }
+
+        $scopeArguments = if ($AllowAdminInstall) { @() } else { @('--scope', 'user') }
+        $scopeDetail = if ($AllowAdminInstall) { "machine/admin scope" } else { "per-user, no admin, no GUI" }
+        Write-DevSetupStatus install "Python" "installing $wingetPackageId via winget ($scopeDetail)"
+        & winget.exe install --id $wingetPackageId -e @scopeArguments --accept-package-agreements --accept-source-agreements --silent
+        if ($LASTEXITCODE -ne 0 -and $AllowAdminInstall) {
+            throw "winget failed to install $wingetPackageId (exit code $LASTEXITCODE), and an administrator install failed. Install Python from https://www.python.org/downloads/."
+        }
         $installed = Get-ChildItem (Join-Path $installRoot $versionGlob) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($installed) {
             $pythonExe = $installed.FullName

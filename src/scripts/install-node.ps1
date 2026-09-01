@@ -9,7 +9,8 @@ param(
     [string]$NodePackage,
     [switch]$Audit,
     [switch]$Uninstall,
-    [switch]$CheckUpgrades
+    [switch]$CheckUpgrades,
+    [switch]$AllowAdminInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,10 +47,17 @@ if (-not $nodeCommand -or -not $npmCommand) {
         throw "Node.js and npm are unavailable and winget is not installed. Install Node.js LTS from https://nodejs.org/ or provide winget.exe in PATH. No GUI installer was launched."
     }
 
-    Write-DevSetupStatus install "Node.js" "installing $NodePackage via winget (per-user, no admin, no GUI)"
-    & winget.exe install --id $NodePackage -e --scope user --accept-package-agreements --accept-source-agreements --silent
+    if ($AllowAdminInstall -and -not (Test-DevSetupProcessElevated)) {
+        throw "Node.js was allowed to install as administrator, but this process is not elevated. Re-run setup from an elevated terminal, or remove Node from -AllowAdminInstallFor to retry per-user setup. Install Node.js LTS from https://nodejs.org/."
+    }
+
+    $scopeArguments = if ($AllowAdminInstall) { @() } else { @('--scope', 'user') }
+    $scopeDetail = if ($AllowAdminInstall) { "machine/admin scope" } else { "per-user, no admin, no GUI" }
+    Write-DevSetupStatus install "Node.js" "installing $NodePackage via winget ($scopeDetail)"
+    & winget.exe install --id $NodePackage -e @scopeArguments --accept-package-agreements --accept-source-agreements --silent
     if ($LASTEXITCODE -ne 0) {
-        throw "winget failed to install $NodePackage (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. Install Node.js LTS from https://nodejs.org/."
+        $scopeFailure = if ($AllowAdminInstall) { "an administrator install failed" } else { "a per-user install may not be supported for this package" }
+        throw "winget failed to install $NodePackage (exit code $LASTEXITCODE), and $scopeFailure. Install Node.js LTS from https://nodejs.org/."
     }
 
     $configuredPaths = Get-DevSetupValue $config "advanced.node.windowsSearchPaths" @(

@@ -1,5 +1,5 @@
 <# Ensures PHP is available for VS Code's built-in PHP validator. #>
-param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
+param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades, [switch]$AllowAdminInstall)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
@@ -18,4 +18,4 @@ $find = {
 }
 
 Install-DevSetupWingetTool -Component "PHP" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
-    -ManualInstallHint "Install PHP from https://www.php.net/downloads.php."
+    -AllowAdminInstall:$AllowAdminInstall -ManualInstallHint "Install PHP from https://www.php.net/downloads.php."

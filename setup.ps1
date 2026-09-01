@@ -16,6 +16,8 @@
 param(
     [string]$GitInstallDir,
     [string]$PythonVersion,
+    [ValidateSet("GitHubCli", "Node", "Python", "PHP", "PowerShell", "ShellCheck", "GPG")]
+    [string[]]$AllowAdminInstallFor = @(),
     [switch]$SkipVSCodeSettings,
     [switch]$SkipUpgradeCheck,
     [switch]$CheckUpgradesOnly,
@@ -65,6 +67,7 @@ function Write-DevSetupConfiguration {
     Write-Host "    PythonVersion   = $PythonVersion"
     Write-Host "    ConfigureVSCode = $ConfigureVSCode"
     Write-Host "    CheckUpgrades   = $CheckUpgrades"
+    Write-Host "    Admin installs  = $(if ($AllowAdminInstallFor.Count) { $AllowAdminInstallFor -join ', ' } else { 'none' })"
     Write-Host "    Audit           = $Audit"
     Write-Host "    Uninstall       = $Uninstall"
     Write-Host "    Config file     = $DevSetupConfigPath"
@@ -106,6 +109,10 @@ if (-not $PythonVersion) {
 
 $configureVSCode = (-not $SkipVSCodeSettings) -and (Get-DevSetupValue $config "user.install.vscodeSettings" $true)
 $checkUpgrades = $CheckUpgradesOnly -or ((-not $SkipUpgradeCheck) -and (Get-DevSetupValue $config "user.checkUpgrades" $true))
+$applyCommand = ".\setup.ps1"
+if ($AllowAdminInstallFor.Count -gt 0) {
+    $applyCommand += " -AllowAdminInstallFor $($AllowAdminInstallFor -join ',')"
+}
 $gitExe = $null
 $pythonExe = $null
 $phpExe = $null
@@ -122,25 +129,25 @@ if ($Uninstall) {
         & (Join-Path $scripts "install-portable-git.ps1") -Uninstall -Audit:$Audit
     }
     if (Get-DevSetupValue $config "user.install.githubCli" $true) {
-        & (Join-Path $scripts "install-github-cli.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-github-cli.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'GitHubCli')
     }
     if (Get-DevSetupValue $config "user.install.node" $true) {
-        & (Join-Path $scripts "install-node.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-node.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'Node')
     }
     if (Get-DevSetupValue $config "user.install.python" $true) {
-        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'Python')
     }
     if (Get-DevSetupValue $config "user.install.php" $true) {
-        & (Join-Path $scripts "install-php.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-php.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'PHP')
     }
     if (Get-DevSetupValue $config "user.install.powershell" $true) {
-        & (Join-Path $scripts "install-powershell.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-powershell.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'PowerShell')
     }
     if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
-        & (Join-Path $scripts "install-shellcheck.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-shellcheck.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'ShellCheck')
     }
     if (Get-DevSetupValue $config "user.install.gpg" $true) {
-        & (Join-Path $scripts "install-gpg.ps1") -Uninstall -Audit:$Audit
+        & (Join-Path $scripts "install-gpg.ps1") -Uninstall -Audit:$Audit -AllowAdminInstall:($AllowAdminInstallFor -contains 'GPG')
     }
 
     Write-Host ""
@@ -149,7 +156,7 @@ if ($Uninstall) {
     } else {
         Write-Host "Uninstall complete."
     }
-    Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit
+    Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit -ApplyCommand $applyCommand
     Remove-Item $statusLog -ErrorAction SilentlyContinue
     Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue
     return
@@ -161,30 +168,30 @@ if ($CheckUpgradesOnly) {
         & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -Audit -CheckUpgrades | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.githubCli" $true) {
-        & (Join-Path $scripts "install-github-cli.ps1") -Audit -CheckUpgrades | Out-Null
+        & (Join-Path $scripts "install-github-cli.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'GitHubCli') | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.node" $true) {
-        & (Join-Path $scripts "install-node.ps1") -Audit -CheckUpgrades
+        & (Join-Path $scripts "install-node.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'Node')
     }
     if (Get-DevSetupValue $config "user.install.python" $true) {
-        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Audit -CheckUpgrades | Out-Null
+        & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'Python') | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.php" $true) {
-        & (Join-Path $scripts "install-php.ps1") -Audit -CheckUpgrades | Out-Null
+        & (Join-Path $scripts "install-php.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'PHP') | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.powershell" $true) {
-        & (Join-Path $scripts "install-powershell.ps1") -Audit -CheckUpgrades | Out-Null
+        & (Join-Path $scripts "install-powershell.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'PowerShell') | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
-        & (Join-Path $scripts "install-shellcheck.ps1") -Audit -CheckUpgrades
+        & (Join-Path $scripts "install-shellcheck.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'ShellCheck')
     }
     if (Get-DevSetupValue $config "user.install.gpg" $true) {
-        & (Join-Path $scripts "install-gpg.ps1") -Audit -CheckUpgrades
+        & (Join-Path $scripts "install-gpg.ps1") -Audit -CheckUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'GPG')
     }
 
     Write-Host ""
     Write-Host "Upgrade check complete. Nothing was installed or changed."
-    Write-DevSetupSummary -LogPath $statusLog -Audit
+    Write-DevSetupSummary -LogPath $statusLog -Audit -ApplyCommand $applyCommand
     Remove-Item $statusLog -ErrorAction SilentlyContinue
     Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue
     return
@@ -206,39 +213,39 @@ if (Get-DevSetupValue $config "user.install.git" $true) {
 }
 
 if (Get-DevSetupValue $config "user.install.githubCli" $true) {
-    & (Join-Path $scripts "install-github-cli.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Out-Null
+    & (Join-Path $scripts "install-github-cli.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'GitHubCli') | Out-Null
 } else {
     Write-DevSetupStatus skip "GitHub CLI" "user.install.githubCli is false"
 }
 
 if (Get-DevSetupValue $config "user.install.node" $true) {
-    & (Join-Path $scripts "install-node.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+    & (Join-Path $scripts "install-node.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'Node')
 } else {
     Write-DevSetupStatus skip "Node.js" "user.install.node is false"
 }
 
 if (Get-DevSetupValue $config "user.install.python" $true) {
     # install-python.ps1 emits the resolved interpreter path as its last output.
-    $pythonExe = & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -ConfigureVSCode:$configureVSCode -Audit:$Audit -CheckUpgrades:$checkUpgrades |
+    $pythonExe = & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -ConfigureVSCode:$configureVSCode -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'Python') |
         Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Python" "user.install.python is false"
 }
 
 if (Get-DevSetupValue $config "user.install.php" $true) {
-    $phpExe = & (Join-Path $scripts "install-php.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Select-Object -Last 1
+    $phpExe = & (Join-Path $scripts "install-php.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'PHP') | Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "PHP" "user.install.php is false"
 }
 
 if (Get-DevSetupValue $config "user.install.powershell" $true) {
-    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Select-Object -Last 1
+    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'PowerShell') | Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "PowerShell" "user.install.powershell is false"
 }
 
 if (Get-DevSetupValue $config "user.install.shellcheck" $true) {
-    & (Join-Path $scripts "install-shellcheck.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+    & (Join-Path $scripts "install-shellcheck.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'ShellCheck')
 } else {
     Write-DevSetupStatus skip "ShellCheck" "user.install.shellcheck is false"
 }
@@ -247,7 +254,7 @@ if (Get-DevSetupValue $config "user.install.gpg" $true) {
     # Unlike the other WinGet installers, Gpg4win doesn't support a per-user-only
     # install on every machine, so a failure here shouldn't abort the rest of setup.
     try {
-        & (Join-Path $scripts "install-gpg.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+        & (Join-Path $scripts "install-gpg.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -AllowAdminInstall:($AllowAdminInstallFor -contains 'GPG')
     } catch {
         Write-DevSetupStatus warn "GPG" $_.Exception.Message
     }
@@ -292,6 +299,6 @@ if ($Audit) {
     Write-Host "Setup complete."
 }
 
-Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit
+Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit -ApplyCommand $applyCommand
 Remove-Item $statusLog -ErrorAction SilentlyContinue
 Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue

@@ -115,7 +115,7 @@ function Write-DevSetupSummary {
         ones setup.ps1 called directly. In -Audit runs, also recommends whether to
         run the real setup, lists what it would change, and gives the exact command.
     #>
-    param([string]$LogPath, [switch]$Audit)
+    param([string]$LogPath, [switch]$Audit, [string]$ApplyCommand = ".\setup.ps1")
 
     $counts = [ordered]@{ found = 0; install = 0; skip = 0; warn = 0; update = 0; remove = 0 }
     $pending = @()
@@ -185,7 +185,7 @@ function Write-DevSetupSummary {
                 Write-Host (" {0}" -f $pending[$index])
             }
             Write-Host ""
-            Write-Host "  APPLY: .\setup.ps1" -ForegroundColor Cyan
+            Write-Host "  APPLY: $ApplyCommand" -ForegroundColor Cyan
         }
         if ($counts.warn -gt 0) {
             Write-Host ""
@@ -275,6 +275,16 @@ function Update-DevSetupSessionPath {
     ) | Where-Object { $_ }) -join ";"
 }
 
+function Test-DevSetupProcessElevated {
+    <# True when the current Windows process already has administrator rights. #>
+    $isWindowsPlatform = if (Get-Variable IsWindows -ErrorAction SilentlyContinue) { $IsWindows } else { $env:OS -eq "Windows_NT" }
+    if (-not $isWindowsPlatform) { return $false }
+
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Find-DevSetupWingetExecutable {
     <#
     .SYNOPSIS
@@ -312,7 +322,8 @@ function Install-DevSetupWingetTool {
         [Parameter(Mandatory)][scriptblock]$Find,
         [Parameter(Mandatory)][string]$ManualInstallHint,
         [switch]$Audit,
-        [switch]$CheckUpgrades
+        [switch]$CheckUpgrades,
+        [switch]$AllowAdminInstall
     )
 
     $exe = & $Find
@@ -322,7 +333,8 @@ function Install-DevSetupWingetTool {
             Write-DevSetupStatus found $Component "$(& $exe --version | Select-Object -First 1) at $exe"
             if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
         } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
-            Write-DevSetupStatus install $Component "would install $PackageId via winget"
+            $scope = if ($AllowAdminInstall) { "machine/admin scope" } else { "per-user scope" }
+            Write-DevSetupStatus install $Component "would install $PackageId via winget ($scope)"
         } else {
             Write-DevSetupStatus warn $Component "missing and winget is unavailable"
         }
@@ -333,10 +345,18 @@ function Install-DevSetupWingetTool {
         if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
             throw "$Component is unavailable and winget is not installed. $ManualInstallHint"
         }
-        Write-DevSetupStatus install $Component "installing $PackageId via winget (per-user, no admin, no GUI)"
-        & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
+
+        if ($AllowAdminInstall -and -not (Test-DevSetupProcessElevated)) {
+            throw "$Component was allowed to install as administrator, but this process is not elevated. Re-run setup from an elevated terminal, or remove this item from -AllowAdminInstallFor to retry per-user setup. $ManualInstallHint"
+        }
+
+        $scopeArguments = if ($AllowAdminInstall) { @() } else { @('--scope', 'user') }
+        $scopeDetail = if ($AllowAdminInstall) { "machine/admin scope" } else { "per-user, no admin, no GUI" }
+        Write-DevSetupStatus install $Component "installing $PackageId via winget ($scopeDetail)"
+        & winget.exe install --id $PackageId -e @scopeArguments --accept-package-agreements --accept-source-agreements --silent
         if ($LASTEXITCODE -ne 0) {
-            throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"
+            $scopeFailure = if ($AllowAdminInstall) { "an administrator install failed" } else { "a per-user install may not be supported for this package" }
+            throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and $scopeFailure. $ManualInstallHint"
         }
         Update-DevSetupSessionPath
         $exe = & $Find

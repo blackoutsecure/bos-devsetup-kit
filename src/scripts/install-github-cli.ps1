@@ -1,5 +1,5 @@
 <# Ensures GitHub CLI is available for repository and PR automation. #>
-param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
+param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades, [switch]$AllowAdminInstall)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
@@ -24,7 +24,7 @@ $find = {
 }
 
 $gh = Install-DevSetupWingetTool -Component "GitHub CLI" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
-    -ManualInstallHint "Install GitHub CLI from https://cli.github.com/." |
+    -AllowAdminInstall:$AllowAdminInstall -ManualInstallHint "Install GitHub CLI from https://cli.github.com/." |
     Select-Object -Last 1
 
 if ($Audit) { return $gh }
