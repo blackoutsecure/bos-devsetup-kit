@@ -150,16 +150,16 @@ Code to discourage global package installs.
 
 ### Options
 
-| Option                    | Applies to                            | Effect                                                                                                   |
-| ------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `-Audit` / `--audit`      | runners and every installer           | Detect and report only.                                                                                  |
-| `-SkipVSCodeSettings`     | `setup.ps1`                           | Leave editor settings alone for one run.                                                                 |
-| `-GitInstallDir <path>`   | `setup.ps1`                           | Override `user.git.installDir` for one run.                                                              |
-| `-PythonVersion <x.y>`    | `setup.ps1`                           | Override `user.python.version` for one run.                                                              |
-| `-AllowAdminInstallFor`   | `setup.ps1`                           | Permit named Windows tools to use machine/admin winget scope. Requires an already elevated terminal.     |
-| `-SkipUpgradeCheck`       | `setup.ps1` / `--skip-upgrade-check`  | Skip the upgrade check for one run (it runs by default).                                                 |
-| `-CheckUpgradesOnly`      | `setup.ps1` / `--check-upgrades-only` | Only check for newer versions; installs and applies nothing.                                             |
-| `-Uninstall`              | `setup.ps1` / `--uninstall`           | Remove tools this kit manages (winget/Homebrew). Combine with `-Audit` to preview. Git is never removed. |
+| Option                  | Applies to                            | Effect                                                                                                   |
+| ----------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `-Audit` / `--audit`    | runners and every installer           | Detect and report only.                                                                                  |
+| `-SkipVSCodeSettings`   | `setup.ps1`                           | Leave editor settings alone for one run.                                                                 |
+| `-GitInstallDir <path>` | `setup.ps1`                           | Override `user.git.installDir` for one run.                                                              |
+| `-PythonVersion <x.y>`  | `setup.ps1`                           | Override `user.python.version` for one run.                                                              |
+| `-AllowAdminInstallFor` | `setup.ps1`                           | Permit named Windows tools to use machine/admin winget scope. Requires an already elevated terminal.     |
+| `-SkipUpgradeCheck`     | `setup.ps1` / `--skip-upgrade-check`  | Skip the upgrade check for one run (it runs by default).                                                 |
+| `-CheckUpgradesOnly`    | `setup.ps1` / `--check-upgrades-only` | Only check for newer versions; installs and applies nothing.                                             |
+| `-Uninstall`            | `setup.ps1` / `--uninstall`           | Remove tools this kit manages (winget/Homebrew). Combine with `-Audit` to preview. Git is never removed. |
 
 Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
 run-through, reporting newer versions with a new `[update]` tag - never applying them automatically.
