@@ -112,7 +112,13 @@ if (-not $pythonExe) {
 
     if (-not $uvCommand) {
         Write-DevSetupStatus install "uv" "installing to $uvPath (user-local, no admin, no GUI)"
-        Invoke-Expression (Invoke-RestMethod -Uri $uvInstallUrl)
+        $uvInstaller = Join-Path ([System.IO.Path]::GetTempPath()) ("devsetup-uv-install-{0}.ps1" -f [guid]::NewGuid())
+        try {
+            Invoke-WebRequest -Uri $uvInstallUrl -OutFile $uvInstaller -UseBasicParsing
+            & $uvInstaller
+        } finally {
+            Remove-Item $uvInstaller -Force -ErrorAction SilentlyContinue
+        }
         if (Test-Path $uvPath) {
             $uvCommand = $uvPath
         }

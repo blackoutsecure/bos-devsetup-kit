@@ -14,7 +14,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../config.sh
+# shellcheck source=src/config.sh
 . "$script_dir/../config.sh"
 
 audit=0

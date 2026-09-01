@@ -20,7 +20,8 @@ $find = {
 }
 
 $gpg = Install-DevSetupWingetTool -Component "GPG" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
-    -ManualInstallHint "Gpg4win's WinGet package does not support a per-user-only install on every machine. Run 'winget install --id $packageId -e' yourself and accept any elevation prompt, or install manually from https://www.gpg4win.org/."
+    -ManualInstallHint "Gpg4win's WinGet package does not support a per-user-only install on every machine. Run 'winget install --id $packageId -e' yourself and accept any elevation prompt, or install manually from https://www.gpg4win.org/." |
+    Select-Object -Last 1
 
 if ($Audit) { return }
 

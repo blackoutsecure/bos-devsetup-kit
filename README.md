@@ -163,7 +163,7 @@ Code to discourage global package installs.
 Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
 run-through, reporting newer versions with a new `[update]` tag - never applying them automatically.
 `-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
-Node.js, Python, PHP, PowerShell, and ShellCheck via the same package manager that installed them (winget
+GitHub CLI, Node.js, Python, PHP, PowerShell, ShellCheck, and GPG via the same package manager that installed them (winget
 on Windows, Homebrew on macOS/Linux); Git is intentionally excluded since removing it would also need to
 unwind the credential/identity config this kit writes.
 

@@ -9,19 +9,18 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../config.sh
+# shellcheck source=src/config.sh
 . "$script_dir/../config.sh"
 
 print_path=0
 audit=0
 uninstall=0
-check_upgrades=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--print-path) print_path=1 ;;
 		--audit) audit=1 ;;
 		--uninstall) uninstall=1 ;;
-		--check-upgrades) check_upgrades=1 ;; # no-op here: uv pins exact versions, not a rolling latest
+		--check-upgrades) : ;; # no-op here: uv pins exact versions, not a rolling latest
 		*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 	shift
