@@ -74,7 +74,7 @@ function Write-DevSetupConfiguration {
     $extensions = @(Get-DevSetupValue $Config 'user.vscode.extensions.install' @())
     $mcpServers = Get-DevSetupValue $Config 'user.mcp.servers' ([pscustomobject]@{})
     $mcpCount = @($mcpServers.PSObject.Properties).Count
-    Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
+    Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), GitHub CLI=$((Get-DevSetupValue $Config 'user.install.githubCli' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
     Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
     Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
     Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $false)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github'))"
@@ -121,6 +121,9 @@ if ($Uninstall) {
     if (Get-DevSetupValue $config "user.install.git" $true) {
         & (Join-Path $scripts "install-portable-git.ps1") -Uninstall -Audit:$Audit
     }
+    if (Get-DevSetupValue $config "user.install.githubCli" $true) {
+        & (Join-Path $scripts "install-github-cli.ps1") -Uninstall -Audit:$Audit
+    }
     if (Get-DevSetupValue $config "user.install.node" $true) {
         & (Join-Path $scripts "install-node.ps1") -Uninstall -Audit:$Audit
     }
@@ -156,6 +159,9 @@ if ($CheckUpgradesOnly) {
     Write-Host "Checking for upgrades (detect only - nothing will be installed or changed):"
     if (Get-DevSetupValue $config "user.install.git" $true) {
         & (Join-Path $scripts "install-portable-git.ps1") -InstallDir $GitInstallDir -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.githubCli" $true) {
+        & (Join-Path $scripts "install-github-cli.ps1") -Audit -CheckUpgrades | Out-Null
     }
     if (Get-DevSetupValue $config "user.install.node" $true) {
         & (Join-Path $scripts "install-node.ps1") -Audit -CheckUpgrades
@@ -197,6 +203,12 @@ if (Get-DevSetupValue $config "user.install.git" $true) {
         Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Git" "user.install.git is false"
+}
+
+if (Get-DevSetupValue $config "user.install.githubCli" $true) {
+    & (Join-Path $scripts "install-github-cli.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Out-Null
+} else {
+    Write-DevSetupStatus skip "GitHub CLI" "user.install.githubCli is false"
 }
 
 if (Get-DevSetupValue $config "user.install.node" $true) {

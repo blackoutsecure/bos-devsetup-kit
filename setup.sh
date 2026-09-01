@@ -59,6 +59,7 @@ if [[ $uninstall -eq 1 ]]; then
 	audit_flag=""
 	[[ $audit -eq 1 ]] && audit_flag="--audit"
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --uninstall $audit_flag; fi
+	if devsetup_enabled user.install.githubCli; then "${BASH:-bash}" "$scripts/install-github-cli.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --uninstall $audit_flag; fi
@@ -78,6 +79,7 @@ fi
 if [[ $check_upgrades_only -eq 1 ]]; then
 	echo "Checking for upgrades (detect only - nothing will be installed or changed):"
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --audit --check-upgrades; fi
+	if devsetup_enabled user.install.githubCli; then "${BASH:-bash}" "$scripts/install-github-cli.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --audit --check-upgrades; fi
@@ -114,6 +116,12 @@ fi
 
 if [[ -z "$git_command" ]] && command -v git >/dev/null 2>&1; then
 	git_command="$(command -v git)"
+fi
+
+if devsetup_enabled user.install.githubCli; then
+	"${BASH:-bash}" "$scripts/install-github-cli.sh" $audit_flag $upgrade_flag
+else
+	devsetup_status skip "GitHub CLI" "user.install.githubCli is false"
 fi
 
 if devsetup_enabled user.install.node; then

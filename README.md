@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Python, PHP, PowerShell, ShellCheck, and GPG per-user, then applies VS Code settings that follow you through
+Installs Git, GitHub CLI, Node.js, Python, PHP, PowerShell, ShellCheck, and GPG per-user, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -17,11 +17,11 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 ## Requirements
 
-| Platform        | Needs                                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and GPG (falls back to `uv` for Python).     |
-| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, and GPG.                              |
-| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, and GPG. |
+| Platform        | Needs                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Windows         | PowerShell 5.1+. `winget` for GitHub CLI, Node.js, Python, PHP, PowerShell 7, ShellCheck, and GPG.                 |
+| macOS           | Xcode Command Line Tools for Git. Homebrew for GitHub CLI, Node.js, PHP, PowerShell, ShellCheck, and GPG.          |
+| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for GitHub CLI and the other managed CLI tools. |
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
@@ -253,6 +253,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | Setting                                     | Default                                                                                                                                                                              | Purpose                                                                                                                                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `user.install.git`                          | `true`                                                                                                                                                                               | Run the Git installer step.                                                                                                            |
+| `user.install.githubCli`                    | `true`                                                                                                                                                                               | Run the GitHub CLI installer step. macOS/Linux use Homebrew; Windows uses WinGet.                                                      |
 | `user.install.node`                         | `true`                                                                                                                                                                               | Run the Node.js/npm step.                                                                                                              |
 | `user.install.python`                       | `true`                                                                                                                                                                               | Run the Python step.                                                                                                                   |
 | `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
@@ -309,6 +310,9 @@ are not meant for day-to-day editing.
 | `advanced.git.credential.windows.guiPrompt`                       | `false`                                    | Keeps GCM from opening blocking dialogs.                                                                                    |
 | `advanced.git.credential.macos.helper`                            | `osxkeychain`                              | Applied when the helper exists.                                                                                             |
 | `advanced.git.credential.linux.helper`                            | `manager`                                  | Applied when the helper exists.                                                                                             |
+| `advanced.githubCli.homebrewFormula`                              | `gh`                                       | Formula used on macOS/Linux.                                                                                                |
+| `advanced.githubCli.wingetPackageId`                              | `GitHub.cli`                               | Package used on Windows.                                                                                                    |
+| `advanced.githubCli.windowsSearchPaths`                           | 7 paths                                    | Post-install `gh.exe` lookup paths. `{wingetPackageId}` is substituted.                                                     |
 | `advanced.python.wingetPackageId`                                 | `Python.Python.{version}`                  | `{version}` is replaced by `user.python.version`.                                                                           |
 | `advanced.python.windowsInstallRoot`                              | `%LOCALAPPDATA%\Programs\Python`           | Where an existing interpreter is discovered.                                                                                |
 | `advanced.python.uvInstallUrl.windows`                            | `https://astral.sh/uv/install.ps1`         | uv bootstrap, used only if winget is unavailable.                                                                           |
