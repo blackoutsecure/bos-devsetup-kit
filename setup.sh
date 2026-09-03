@@ -58,6 +58,7 @@ if [[ $uninstall -eq 1 ]]; then
 	echo "Uninstalling (each step only removes tools this kit manages; Git is never removed):"
 	audit_flag=""
 	[[ $audit -eq 1 ]] && audit_flag="--audit"
+	if devsetup_enabled user.install.homebrew; then "${BASH:-bash}" "$scripts/install-homebrew.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --uninstall $audit_flag; fi
@@ -77,6 +78,7 @@ fi
 
 if [[ $check_upgrades_only -eq 1 ]]; then
 	echo "Checking for upgrades (detect only - nothing will be installed or changed):"
+	if devsetup_enabled user.install.homebrew; then "${BASH:-bash}" "$scripts/install-homebrew.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --audit --check-upgrades; fi
@@ -96,6 +98,13 @@ if [[ $audit -eq 1 ]]; then
 else
 	echo "Running setup (each step is skipped when already satisfied):"
 	audit_flag=""
+fi
+
+# Install Homebrew first as a dependency for other tools on macOS/Linux
+if devsetup_enabled user.install.homebrew; then
+	"${BASH:-bash}" "$scripts/install-homebrew.sh" $audit_flag $upgrade_flag
+else
+	devsetup_status skip Homebrew "user.install.homebrew is false"
 fi
 
 git_command=""

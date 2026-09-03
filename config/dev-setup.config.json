@@ -6,6 +6,7 @@
     ],
     "user": {
         "install": {
+            "homebrew": true,
             "git": true,
             "node": true,
             "python": true,
