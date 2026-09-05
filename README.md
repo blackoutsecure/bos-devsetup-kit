@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Python, PHP, PowerShell, ShellCheck, and GPG per-user, then applies VS Code settings that follow you through
+Installs Git, Node.js, Python, PHP, PowerShell, ShellCheck, ripgrep, and GPG per-user, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -17,11 +17,11 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 ## Requirements
 
-| Platform        | Needs                                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, and ShellCheck (falls back to `uv` for Python).          |
-| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, and GPG.                              |
-| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, and GPG. |
+| Platform        | Needs                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and ripgrep (falls back to `uv` for Python).          |
+| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG.                              |
+| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG. |
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
@@ -75,6 +75,9 @@ passwordless `sudo` is reported as found and left unchanged, including with `-Co
 The setup also installs the ShellCheck CLI by default, so the local Bash lint
 checks used by the Blackout Secure repositories can run without a separate
 tool installation. Set `user.install.shellcheck` to `false` to skip it.
+
+ripgrep (`rg`) is installed by default for fast recursive repository searches.
+Set `user.install.ripgrep` to `false` to skip it.
 
 GPG is available by default too, so `git` commit/tag signing works without a separate
 tool installation. Set `user.install.gpg` to `false` to skip its configuration. On Windows,
@@ -163,7 +166,7 @@ Code to discourage global package installs.
 Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
 run-through, reporting newer versions with a new `[update]` tag - never applying them automatically.
 `-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
-Node.js, Python, PHP, PowerShell, and ShellCheck via the same package manager that installed them (winget
+Node.js, Python, PHP, PowerShell, ShellCheck, and ripgrep via the same package manager that installed them (winget
 on Windows, Homebrew on macOS/Linux); Git is intentionally excluded since removing it would also need to
 unwind the credential/identity config this kit writes.
 
@@ -258,6 +261,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
 | `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                              |
 | `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                            |
+| `user.install.ripgrep`                      | `true`                                                                                                                                                                               | Run the ripgrep (`rg`) CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                        |
 | `user.install.gpg`                          | `true`                                                                                                                                                                               | Run the GPG step. macOS/Linux use Homebrew; Windows configures PortableGit's bundled GPG.                                              |
 | `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                     |
 | `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                           |

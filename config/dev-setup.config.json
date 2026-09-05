@@ -13,6 +13,7 @@
             "php": true,
             "powershell": true,
             "shellcheck": true,
+            "ripgrep": true,
             "gpg": true,
             "vscodeSettings": true,
             "devcontainerDefaults": true,
@@ -238,6 +239,13 @@
             "wingetPackageId": "koalaman.shellcheck",
             "windowsSearchPaths": [
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\shellcheck.exe"
+            ]
+        },
+        "ripgrep": {
+            "homebrewFormula": "ripgrep",
+            "wingetPackageId": "BurntSushi.ripgrep.MSVC",
+            "windowsSearchPaths": [
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\rg.exe"
             ]
         },
         "gpg": {

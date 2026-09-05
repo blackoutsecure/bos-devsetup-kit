@@ -65,6 +65,7 @@ if [[ $uninstall -eq 1 ]]; then
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.shellcheck; then "${BASH:-bash}" "$scripts/install-shellcheck.sh" --uninstall $audit_flag; fi
+	if devsetup_enabled user.install.ripgrep; then "${BASH:-bash}" "$scripts/install-ripgrep.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.gpg; then "${BASH:-bash}" "$scripts/install-gpg.sh" --uninstall $audit_flag; fi
 	echo
 	if [[ $audit -eq 1 ]]; then
@@ -85,6 +86,7 @@ if [[ $check_upgrades_only -eq 1 ]]; then
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.shellcheck; then "${BASH:-bash}" "$scripts/install-shellcheck.sh" --audit --check-upgrades; fi
+	if devsetup_enabled user.install.ripgrep; then "${BASH:-bash}" "$scripts/install-ripgrep.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.gpg; then "${BASH:-bash}" "$scripts/install-gpg.sh" --audit --check-upgrades; fi
 	echo
 	echo "Upgrade check complete. Nothing was installed or changed."
@@ -168,6 +170,12 @@ if devsetup_enabled user.install.shellcheck; then
 	"${BASH:-bash}" "$scripts/install-shellcheck.sh" $audit_flag $upgrade_flag
 else
 	devsetup_status skip ShellCheck "user.install.shellcheck is false"
+fi
+
+if devsetup_enabled user.install.ripgrep; then
+	"${BASH:-bash}" "$scripts/install-ripgrep.sh" $audit_flag $upgrade_flag
+else
+	devsetup_status skip ripgrep "user.install.ripgrep is false"
 fi
 
 if devsetup_enabled user.install.gpg; then
