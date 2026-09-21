@@ -361,7 +361,17 @@ function Test-DevSetupWingetUpgrade {
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { return }
     $output = & winget.exe upgrade --id $PackageId -e --accept-source-agreements 2>$null
     if ($LASTEXITCODE -eq 0 -and ($output | Select-String -SimpleMatch $PackageId)) {
-        Write-DevSetupStatus update $Component "newer version available (run: winget upgrade --id $PackageId)"
+        $row = $output | Where-Object { $_ -like "*$PackageId*" } | Select-Object -First 1
+        $installedVersion = "unknown"
+        $availableVersion = "unknown"
+        if ($row) {
+            $columns = @($row -split '\s{2,}' | Where-Object { $_ })
+            if ($columns.Count -ge 4) {
+                $installedVersion = $columns[$columns.Count - 3]
+                $availableVersion = $columns[$columns.Count - 2]
+            }
+        }
+        Write-DevSetupStatus update $Component "newer version available: installed $installedVersion, latest $availableVersion (run: winget upgrade --id $PackageId)"
     }
 }
 

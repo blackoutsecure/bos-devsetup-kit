@@ -9,6 +9,7 @@
             "homebrew": true,
             "git": true,
             "node": true,
+            "prettier": true,
             "python": true,
             "php": true,
             "powershell": true,
@@ -34,12 +35,12 @@
         "vscode": {
             "profiles": ["stable", "insiders"],
             "settingsSync": {
-                "syncAfterSetup": false,
+                "syncAfterSetup": true,
                 "requiredProvider": "github"
             },
             "extensions": {
                 "manage": true,
-                "uninstallBlocked": false,
+                "uninstallBlocked": true,
                 "install": [
                     "charliermarsh.ruff",
                     "davidanson.vscode-markdownlint",
@@ -222,6 +223,12 @@
                 "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe",
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}*\\node-v*\\node.exe"
             ]
+        },
+        "prettier": {
+            "npmPackage": "prettier",
+            "npmPackageSpec": "prettier@latest",
+            "windowsGlobalPrefix": "%USERPROFILE%\\.npm-global",
+            "unixGlobalPrefix": "$HOME/.npm-global"
         },
         "php": {
             "homebrewFormula": "php",

@@ -61,6 +61,7 @@ if [[ $uninstall -eq 1 ]]; then
 	if devsetup_enabled user.install.homebrew; then "${BASH:-bash}" "$scripts/install-homebrew.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --uninstall $audit_flag; fi
+	if devsetup_enabled user.install.prettier; then "${BASH:-bash}" "$scripts/install-prettier.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --uninstall $audit_flag; fi
@@ -82,6 +83,7 @@ if [[ $check_upgrades_only -eq 1 ]]; then
 	if devsetup_enabled user.install.homebrew; then "${BASH:-bash}" "$scripts/install-homebrew.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.git; then "${BASH:-bash}" "$scripts/install-portable-git.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.node; then "${BASH:-bash}" "$scripts/install-node.sh" --audit --check-upgrades; fi
+	if devsetup_enabled user.install.prettier; then "${BASH:-bash}" "$scripts/install-prettier.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --audit --check-upgrades; fi
@@ -131,6 +133,12 @@ if devsetup_enabled user.install.node; then
 	"${BASH:-bash}" "$scripts/install-node.sh" $audit_flag $upgrade_flag
 else
 	devsetup_status skip Node.js "user.install.node is false"
+fi
+
+if devsetup_enabled user.install.prettier; then
+	"${BASH:-bash}" "$scripts/install-prettier.sh" $audit_flag $upgrade_flag
+else
+	devsetup_status skip Prettier "user.install.prettier is false"
 fi
 
 python_command=""

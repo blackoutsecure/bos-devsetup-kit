@@ -10,13 +10,34 @@ $portableGitRelativePath = Get-DevSetupValue $config "advanced.gpg.portableGitRe
 $portableGpg = Join-Path $gitInstallDir $portableGitRelativePath
 $portableGit = Join-Path $gitInstallDir "cmd\git.exe"
 
+function Get-BundledGitGpg {
+    param([string]$GitExe)
+
+    if (-not $GitExe) { return $null }
+    $gitCommandDirectory = Split-Path -Parent $GitExe
+    $gitRoot = Split-Path -Parent $gitCommandDirectory
+    $candidate = Join-Path $gitRoot $portableGitRelativePath
+    if (Test-Path $candidate) { return $candidate }
+
+    return $null
+}
+
 if ($Uninstall) {
     Write-DevSetupStatus warn "GPG" "GPG is bundled with PortableGit; uninstall is not supported separately"
     return
 }
 
+$git = if (Test-Path $portableGit) {
+    $portableGit
+} else {
+    Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+}
+if (-not $git) { throw "Git was not found, so the global gpg.program setting cannot be updated." }
+
 $gpg = if (Test-Path $portableGpg) {
     $portableGpg
+} elseif (Get-BundledGitGpg $git) {
+    Get-BundledGitGpg $git
 } else {
     Get-Command gpg.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
 }
@@ -29,13 +50,6 @@ if (-not $gpg) {
     }
     throw $message
 }
-
-$git = if (Test-Path $portableGit) {
-    $portableGit
-} else {
-    Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
-}
-if (-not $git) { throw "Git was not found, so the global gpg.program setting cannot be updated." }
 
 $configuredGpg = & $git config --global --get gpg.program 2>$null
 

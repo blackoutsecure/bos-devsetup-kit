@@ -74,7 +74,7 @@ function Write-DevSetupConfiguration {
     $extensions = @(Get-DevSetupValue $Config 'user.vscode.extensions.install' @())
     $mcpServers = Get-DevSetupValue $Config 'user.mcp.servers' ([pscustomobject]@{})
     $mcpCount = @($mcpServers.PSObject.Properties).Count
-    Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
+    Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Prettier=$((Get-DevSetupValue $Config 'user.install.prettier' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
     Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), ripgrep=$((Get-DevSetupValue $Config 'user.install.ripgrep' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
     Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
     Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $false)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github'))"
@@ -124,6 +124,9 @@ if ($Uninstall) {
     if (Get-DevSetupValue $config "user.install.node" $true) {
         & (Join-Path $scripts "install-node.ps1") -Uninstall -Audit:$Audit
     }
+    if (Get-DevSetupValue $config "user.install.prettier" $true) {
+        & (Join-Path $scripts "install-prettier.ps1") -Uninstall -Audit:$Audit
+    }
     if (Get-DevSetupValue $config "user.install.python" $true) {
         & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Uninstall -Audit:$Audit
     }
@@ -162,6 +165,9 @@ if ($CheckUpgradesOnly) {
     }
     if (Get-DevSetupValue $config "user.install.node" $true) {
         & (Join-Path $scripts "install-node.ps1") -Audit -CheckUpgrades
+    }
+    if (Get-DevSetupValue $config "user.install.prettier" $true) {
+        & (Join-Path $scripts "install-prettier.ps1") -Audit -CheckUpgrades
     }
     if (Get-DevSetupValue $config "user.install.python" $true) {
         & (Join-Path $scripts "install-python.ps1") -PythonVersion $PythonVersion -Audit -CheckUpgrades | Out-Null
@@ -209,6 +215,12 @@ if (Get-DevSetupValue $config "user.install.node" $true) {
     & (Join-Path $scripts "install-node.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
 } else {
     Write-DevSetupStatus skip "Node.js" "user.install.node is false"
+}
+
+if (Get-DevSetupValue $config "user.install.prettier" $true) {
+    & (Join-Path $scripts "install-prettier.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+} else {
+    Write-DevSetupStatus skip "Prettier" "user.install.prettier is false"
 }
 
 if (Get-DevSetupValue $config "user.install.python" $true) {

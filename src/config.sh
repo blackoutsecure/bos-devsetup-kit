@@ -168,11 +168,28 @@ devsetup_install_via_homebrew() {
 # Reports (never applies) whether Homebrew has a newer version of a formula.
 # Silent when Homebrew is unavailable or the formula is already current.
 devsetup_check_homebrew_upgrade() {
-	local component="$1" formula="$2" outdated
+	local component="$1" formula="$2" outdated installed latest reader update_count
 	command -v brew >/dev/null 2>&1 || return 0
-	outdated="$(brew outdated --formula "$formula" 2>/dev/null || true)"
+	outdated="$(brew outdated --formula --json=v2 "$formula" 2>/dev/null || true)"
 	if [[ -n "$outdated" ]]; then
-		devsetup_status update "$component" "newer version available (run: brew upgrade $formula)"
+		update_count=0
+		reader="$(devsetup_config_reader 2>/dev/null || true)"
+		if [[ "$reader" == "jq" ]]; then
+			update_count="$(printf '%s' "$outdated" | jq -r '(.formulae // []) | length' 2>/dev/null || printf '0')"
+		elif [[ -n "$reader" ]]; then
+			update_count="$(printf '%s' "$outdated" | "$reader" -c 'import json, sys; print(len(json.load(sys.stdin).get("formulae") or []))' 2>/dev/null || printf '0')"
+		fi
+		[[ "$update_count" -gt 0 ]] || return 0
+		installed="unknown"
+		latest="unknown"
+		if [[ "$reader" == "jq" ]]; then
+			installed="$(printf '%s' "$outdated" | jq -r '.formulae[0].installed_versions[0] // "unknown"' 2>/dev/null || printf 'unknown')"
+			latest="$(printf '%s' "$outdated" | jq -r '.formulae[0].current_version // "unknown"' 2>/dev/null || printf 'unknown')"
+		elif [[ -n "$reader" ]]; then
+			installed="$(printf '%s' "$outdated" | "$reader" -c 'import json, sys; data=json.load(sys.stdin); item=(data.get("formulae") or [{}])[0]; print((item.get("installed_versions") or ["unknown"])[0])' 2>/dev/null || printf 'unknown')"
+			latest="$(printf '%s' "$outdated" | "$reader" -c 'import json, sys; data=json.load(sys.stdin); item=(data.get("formulae") or [{}])[0]; print(item.get("current_version") or "unknown")' 2>/dev/null || printf 'unknown')"
+		fi
+		devsetup_status update "$component" "newer version available: installed $installed, latest $latest (run: brew upgrade $formula)"
 	fi
 }
 

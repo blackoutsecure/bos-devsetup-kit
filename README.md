@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Python, PHP, PowerShell, ShellCheck, ripgrep, and GPG per-user, then applies VS Code settings that follow you through
+Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, and GPG per-user, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -17,11 +17,11 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 ## Requirements
 
-| Platform        | Needs                                                                                                                               |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and ripgrep (falls back to `uv` for Python).          |
-| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG.                              |
-| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG. |
+| Platform        | Needs                                                                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, and ripgrep (falls back to `uv` for Python). Prettier uses npm after Node.js is present.          |
+| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG. Prettier uses npm after Node.js is present.                              |
+| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, and GPG. Prettier uses npm after Node.js is present. |
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
@@ -78,6 +78,11 @@ tool installation. Set `user.install.shellcheck` to `false` to skip it.
 
 ripgrep (`rg`) is installed by default for fast recursive repository searches.
 Set `user.install.ripgrep` to `false` to skip it.
+
+Prettier is installed by default as a user-level npm global so `prettier --check .`
+works in any repository, including before a repository's own dependencies are installed.
+The VS Code Prettier extension and default formatter setting are also part of the synced
+baseline. Set `user.install.prettier` to `false` to skip the global CLI.
 
 GPG is available by default too, so `git` commit/tag signing works without a separate
 tool installation. Set `user.install.gpg` to `false` to skip its configuration. On Windows,
@@ -164,10 +169,11 @@ Code to discourage global package installs.
 | `-Uninstall`            | `setup.ps1` / `--uninstall`           | Remove tools this kit manages (winget/Homebrew). Combine with `-Audit` to preview. Git is never removed. |
 
 Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
-run-through, reporting newer versions with a new `[update]` tag - never applying them automatically.
+run-through, reporting newer versions with a new `[update]` tag and, where the package manager exposes
+it, the installed and latest versions. They never apply upgrades automatically.
 `-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
-Node.js, Python, PHP, PowerShell, ShellCheck, and ripgrep via the same package manager that installed them (winget
-on Windows, Homebrew on macOS/Linux); Git is intentionally excluded since removing it would also need to
+Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, and ripgrep via the same package manager that installed them (winget or npm
+on Windows, Homebrew or npm on macOS/Linux); Git is intentionally excluded since removing it would also need to
 unwind the credential/identity config this kit writes.
 
 ## Audit output
@@ -186,11 +192,11 @@ Auditing (detect only - nothing will be installed or changed):
              - python.defaultInterpreterPath
              - python.terminal.activateEnvironment
   [skip]    validate dry-run; files were not changed
-  [skip]    VS Code User Sync user.vscode.settingsSync.syncAfterSetup is false
+  [found]   VS Code User Sync GitHub Settings Sync already enabled (stable)
 
 Audit complete. Nothing was installed or changed. Re-run without -Audit to apply.
 
-Summary: 2 found, 2 would install, 2 skipped, 1 warning
+Summary: 3 found, 2 would install, 1 skipped, 1 warning
 
 Recommendation: 2 change(s) would be made if you run the real setup:
   - git cfg: would set credential.helper, credential.credentialStore, credential.guiPrompt
@@ -207,7 +213,7 @@ The same vocabulary is used during a real run:
 | `[install]` | Something was changed or installed.                                       |
 | `[skip]`    | Disabled in config, or not applicable on this platform.                   |
 | `[warn]`    | Continued, but the result is degraded or needs your attention.            |
-| `[update]`  | A newer version is available. Reported only, never applied automatically. |
+| `[update]`  | A newer version is available. Reports installed/latest versions when known, but never applies automatically. |
 | `[remove]`  | Uninstalled. Only ever appears with `-Uninstall` / `--uninstall`.         |
 
 Every run ends with a one-line `Summary:` tally of these tags. `-Audit` runs add a
@@ -257,6 +263,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `user.install.git`                          | `true`                                                                                                                                                                               | Run the Git installer step.                                                                                                            |
 | `user.install.node`                         | `true`                                                                                                                                                                               | Run the Node.js/npm step.                                                                                                              |
+| `user.install.prettier`                     | `true`                                                                                                                                                                               | Run the Prettier CLI step. Uses user-level npm globals after Node.js/npm are available.                                                |
 | `user.install.python`                       | `true`                                                                                                                                                                               | Run the Python step.                                                                                                                   |
 | `user.install.php`                          | `true`                                                                                                                                                                               | Run the PHP step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                       |
 | `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                              |
@@ -266,7 +273,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                     |
 | `user.install.devcontainerDefaults`         | `true`                                                                                                                                                                               | Include the Dev Containers keys and snippet.                                                                                           |
 | `user.install.mcpServers`                   | `true`                                                                                                                                                                               | Reconcile MCP servers in `mcp.json`.                                                                                                   |
-| `user.checkUpgrades`                        | `true`                                                                                                                                                                               | Report newer versions (`[update]`) during every audit/install run. `-SkipUpgradeCheck` / `--skip-upgrade-check` overrides for one run. |
+| `user.checkUpgrades`                        | `true`                                                                                                                                                                               | Report newer versions (`[update]`) during every audit/install run, with installed/latest versions when known. `-SkipUpgradeCheck` / `--skip-upgrade-check` overrides for one run. |
 | `user.git.installDir`                       | `""`                                                                                                                                                                                 | Windows PortableGit location. Empty uses `advanced.git.defaultInstallDir`.                                                             |
 | `user.git.forcePortable`                    | `false`                                                                                                                                                                              | Install PortableGit even when a system Git is on `PATH`. Left `false`, an existing Git is detected and the download is skipped.        |
 | `user.git.userName`                         | `""`                                                                                                                                                                                 | Applied via `git config --global user.name` when non-empty.                                                                            |
@@ -275,13 +282,13 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.python.allowGlobalPackageInstalls`    | `false`                                                                                                                                                                              | Written to VS Code as `python.globalModuleInstallation`; keep `false` to preserve the Python extension's virtual-environment warning.  |
 | `user.python.recommendedVirtualEnvironment` | `".venv"`                                                                                                                                                                            | Documented environment folder recommendation for project-level dependencies.                                                           |
 | `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                                |
-| `user.vscode.settingsSync.syncAfterSetup`   | `false`                                                                                                                                                                              | Set `true` to request VS Code Settings Sync after successful validation. This may open VS Code.                                        |
+| `user.vscode.settingsSync.syncAfterSetup`   | `true`                                                                                                                                                                               | Request VS Code Settings Sync after successful validation when GitHub sync is already enabled. This may open VS Code.                  |
 | `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                                |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                              |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                      |
 | `user.vscode.extensions.install`            | 17 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                             |
 | `user.vscode.extensions.block`              | 11 extensions                                                                                                                                                                        | Never installed. Reported as `[warn]` if already present.                                                                              |
-| `user.vscode.extensions.uninstallBlocked`   | `false`                                                                                                                                                                              | When `true`, blocked extensions that are installed are removed instead of just reported.                                               |
+| `user.vscode.extensions.uninstallBlocked`   | `true`                                                                                                                                                                               | Remove blocked extensions that are installed instead of just reporting them.                                                           |
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                          |
 | `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                 |
 | `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                 |
@@ -322,6 +329,10 @@ are not meant for day-to-day editing.
 | `advanced.node.wingetPackageId`                                   | `OpenJS.NodeJS.LTS`                        | Also substituted into `windowsSearchPaths`.                                                                                 |
 | `advanced.node.homebrewFormula`                                   | `node`                                     | Formula used on macOS/Linux.                                                                                                |
 | `advanced.node.windowsSearchPaths`                                | 3 paths                                    | Where `node.exe` is located after a winget install. `{wingetPackageId}` is substituted.                                     |
+| `advanced.prettier.npmPackage`                                    | `prettier`                                 | Package name used for npm uninstall and upgrade checks.                                                                     |
+| `advanced.prettier.npmPackageSpec`                                | `prettier@latest`                          | Package spec installed by npm.                                                                                              |
+| `advanced.prettier.windowsGlobalPrefix`                           | `%USERPROFILE%\.npm-global`                | User-owned npm global prefix on Windows.                                                                                    |
+| `advanced.prettier.unixGlobalPrefix`                              | `$HOME/.npm-global`                        | User-owned npm global prefix on macOS/Linux.                                                                                |
 | `advanced.php.homebrewFormula`                                    | `php`                                      | Formula used on macOS/Linux for PHP validation.                                                                             |
 | `advanced.php.wingetPackageId`                                    | `PHP.PHP`                                  | Package used on Windows for PHP validation.                                                                                 |
 | `advanced.powershell.homebrewFormula`                             | `powershell`                               | Formula used on macOS/Linux for the PowerShell extension.                                                                   |
@@ -377,8 +388,9 @@ in the install list, so having both causes duplicate diagnostics or fighting for
 | `ms-vscode.powershell-preview`                                       | `ms-vscode.powershell`                          |
 | `eg2.vscode-npm-script`, `ms-vscode.node-debug2`                     | Built into VS Code                              |
 
-Blocked extensions are reported, not removed, unless `uninstallBlocked` is `true`. An extension
-listed in both `install` and `block` is a configuration error and fails the run.
+Blocked extensions are removed by default because `uninstallBlocked` is `true`; set it to `false`
+to report them without removing them. An extension listed in both `install` and `block` is a
+configuration error and fails the run.
 
 Extension management needs the VS Code CLI (`code`) on `PATH`. Profiles whose CLI is missing are
 reported as `[skip]` and everything else still runs.

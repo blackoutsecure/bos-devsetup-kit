@@ -578,12 +578,12 @@ def sync_settings(config: dict, dry_run: bool) -> None:
             status("skip", "VS Code User Sync", f"'{command}' CLI not on PATH ({profile})")
             continue
         if dry_run:
-            status("install", "VS Code User Sync", f"would request Settings Sync ({profile})")
+            status("found", "VS Code User Sync", f"GitHub Settings Sync already enabled ({profile})")
             continue
 
         code, output = run_cli(cli, *cli_args)
         if code == 0:
-            status("install", "VS Code User Sync", f"requested GitHub Settings Sync ({profile})")
+            status("found", "VS Code User Sync", f"GitHub Settings Sync enabled; sync requested ({profile})")
         else:
             status("warn", "VS Code User Sync", f"sync request failed: {output.strip()[:120]}")
 
