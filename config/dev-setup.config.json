@@ -15,6 +15,7 @@
             "powershell": true,
             "shellcheck": true,
             "ripgrep": true,
+            "packer": true,
             "gpg": true,
             "vscodeSettings": true,
             "devcontainerDefaults": true,
@@ -49,6 +50,7 @@
                     "esbenp.prettier-vscode",
                     "github.vscode-github-actions",
                     "github.vscode-pull-request-github",
+                    "hashicorp.hcl",
                     "ms-azuretools.vscode-containers",
                     "ms-python.debugpy",
                     "ms-python.python",
@@ -253,6 +255,14 @@
             "wingetPackageId": "BurntSushi.ripgrep.MSVC",
             "windowsSearchPaths": [
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\rg.exe"
+            ]
+        },
+        "packer": {
+            "homebrewFormula": "hashicorp/tap/packer",
+            "wingetPackageId": "Hashicorp.Packer",
+            "windowsSearchPaths": [
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\packer.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\packer.exe"
             ]
         },
         "gpg": {
