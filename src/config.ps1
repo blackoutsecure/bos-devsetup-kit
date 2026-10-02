@@ -311,6 +311,7 @@ function Install-DevSetupWingetTool {
         [Parameter(Mandatory)][string]$PackageId,
         [Parameter(Mandatory)][scriptblock]$Find,
         [Parameter(Mandatory)][string]$ManualInstallHint,
+        [string[]]$VersionArgs = @("--version"),
         [switch]$Audit,
         [switch]$CheckUpgrades
     )
@@ -319,7 +320,7 @@ function Install-DevSetupWingetTool {
 
     if ($Audit) {
         if ($exe) {
-            Write-DevSetupStatus found $Component "$(& $exe --version | Select-Object -First 1) at $exe"
+            Write-DevSetupStatus found $Component "$(& $exe @VersionArgs | Select-Object -First 1) at $exe"
             if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
         } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
             Write-DevSetupStatus install $Component "would install $PackageId via winget"
@@ -343,7 +344,7 @@ function Install-DevSetupWingetTool {
     }
     if (-not $exe) { throw "$Component setup completed but the executable was not found. Open a new terminal and run setup again." }
 
-    Write-DevSetupStatus found $Component "$(& $exe --version | Select-Object -First 1) at $exe"
+    Write-DevSetupStatus found $Component "$(& $exe @VersionArgs | Select-Object -First 1) at $exe"
     if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
     return $exe
 }

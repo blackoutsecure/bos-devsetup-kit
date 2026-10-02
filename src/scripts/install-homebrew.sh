@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # Ensures Homebrew is installed without admin rights.
-# On macOS, Homebrew is typically pre-installed or installable by users.
-# On Linux, Homebrew is installed to $HOME/.linuxbrew automatically.
+# When absent, a user-local copy is installed to $HOME/.linuxbrew.
 #
 # --audit reports what would happen without changing anything.
 #
@@ -45,34 +44,23 @@ if [[ $uninstall -eq 1 ]]; then
 	exit 0
 fi
 
-if command -v brew >/dev/null 2>&1; then
+if devsetup_activate_homebrew; then
 	devsetup_status found Homebrew "$(brew --version | head -n 1) at $(command -v brew)"
+	if [[ $check_upgrades -eq 1 ]]; then
+		devsetup_status skip Homebrew "self-update check skipped because it would refresh Homebrew repository metadata"
+	fi
 	exit 0
 fi
 
 if [[ $audit -eq 1 ]]; then
-	case "$os" in
-		Darwin)
-			devsetup_status install Homebrew "would install via official macOS installer (requires curl)"
-			;;
-		Linux)
-			devsetup_status install Homebrew "would install via official Linux installer to \$HOME/.linuxbrew (requires curl)"
-			;;
-	esac
+	devsetup_status install Homebrew "would install user-local Homebrew to \$HOME/.linuxbrew and update the shell profile"
 	exit 0
 fi
 
 # Not found and not auditing, so attempt installation
 if ! devsetup_ensure_homebrew; then
 	printf 'Homebrew installation failed. Please install Homebrew manually:\n' >&2
-	case "$os" in
-		Darwin)
-			printf '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"\n' >&2
-			;;
-		Linux)
-			printf '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"\n' >&2
-			;;
-	esac
+	printf '  https://docs.brew.sh/Installation#untar-anywhere-unsupported\n' >&2
 	exit 1
 fi
 

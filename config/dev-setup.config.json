@@ -15,6 +15,7 @@
             "powershell": true,
             "shellcheck": true,
             "ripgrep": true,
+            "busybox": true,
             "packer": true,
             "gpg": true,
             "vscodeSettings": true,
@@ -192,8 +193,8 @@
             "portableReleaseApiUrl": "https://api.github.com/repos/git-for-windows/git/releases/latest",
             "portableAssetPattern": "PortableGit-*64-bit.7z.exe",
             "homebrewFormula": "git",
-            "homebrewInstallUrl": "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",
-            "linuxbrewShellenv": "/home/linuxbrew/.linuxbrew/bin/brew",
+            "homebrewInstallUrl": "https://github.com/Homebrew/brew/archive/refs/heads/master.tar.gz",
+            "linuxbrewShellenv": "$HOME/.linuxbrew/bin/brew",
             "credential": {
                 "windows": {
                     "helper": "manager",
@@ -255,6 +256,13 @@
             "wingetPackageId": "BurntSushi.ripgrep.MSVC",
             "windowsSearchPaths": [
                 "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\rg.exe"
+            ]
+        },
+        "busybox": {
+            "wingetPackageId": "frippery.busybox-w32",
+            "windowsSearchPaths": [
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\busybox.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\busybox*.exe"
             ]
         },
         "packer": {

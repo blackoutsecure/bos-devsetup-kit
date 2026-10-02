@@ -89,23 +89,101 @@ devsetup_enabled() {
 	[[ "$(devsetup_config "$1" "${2:-true}")" == "true" ]]
 }
 
-devsetup_ensure_homebrew() {
+devsetup_homebrew_path() {
+	local configured_path
 	if command -v brew >/dev/null 2>&1; then
+		command -v brew
 		return 0
 	fi
-	if [[ "$(uname -s 2>/dev/null)" != "Linux" ]]; then
+
+	configured_path="$(devsetup_config advanced.git.linuxbrewShellenv "\$HOME/.linuxbrew/bin/brew")"
+	configured_path="${configured_path/#\$HOME/$HOME}"
+	if [[ -x "$configured_path" ]]; then
+		printf '%s\n' "$configured_path"
+		return 0
+	fi
+	return 1
+}
+
+devsetup_activate_homebrew() {
+	local brew_path
+	brew_path="$(devsetup_homebrew_path 2>/dev/null || true)"
+	[[ -n "$brew_path" ]] || return 1
+	eval "$("$brew_path" shellenv)"
+	command -v brew >/dev/null 2>&1
+}
+
+devsetup_persist_homebrew_shellenv() {
+	local brew_path="$1" profile shellenv_line backup
+	if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+		profile="$HOME/.zprofile"
+	else
+		profile="$HOME/.profile"
+	fi
+	printf -v shellenv_line "eval \"\$(\"%s\" shellenv)\"" "$brew_path"
+	if [[ -f "$profile" ]] && grep -Fqx "$shellenv_line" "$profile"; then
+		return 0
+	fi
+	if [[ -f "$profile" ]]; then
+		backup="${profile}.devsetup-backup-$(date -u +%Y%m%d%H%M%S)"
+		cp "$profile" "$backup"
+		devsetup_status install Homebrew "backed up $profile to $backup" >&2
+	fi
+	printf '\n# Added by bos-devsetup-kit for user-local Homebrew.\n%s\n' "$shellenv_line" >> "$profile"
+	devsetup_status install Homebrew "shell environment added to $profile" >&2
+}
+
+devsetup_ensure_homebrew() {
+	local archive_url brew_path parent prefix stage
+	if devsetup_activate_homebrew; then
+		return 0
+	fi
+	case "$(uname -s 2>/dev/null)" in
+		Darwin|Linux) ;;
+		*) return 1 ;;
+	esac
+
+	brew_path="$(devsetup_config advanced.git.linuxbrewShellenv "\$HOME/.linuxbrew/bin/brew")"
+	brew_path="${brew_path/#\$HOME/$HOME}"
+	prefix="$(dirname "$(dirname "$brew_path")")"
+	case "$prefix" in
+		"$HOME"/*) ;;
+		*)
+			printf 'Refusing to bootstrap Homebrew outside the user profile: %s\n' "$prefix" >&2
+			return 1
+			;;
+	esac
+	if [[ -e "$prefix" ]]; then
+		printf 'Homebrew prefix exists but does not contain an executable brew: %s\n' "$prefix" >&2
 		return 1
 	fi
 
-	brew_install_url="$(devsetup_config advanced.git.homebrewInstallUrl https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-	brew_shellenv="$(devsetup_config advanced.git.linuxbrewShellenv /home/linuxbrew/.linuxbrew/bin/brew)"
-	devsetup_status install Homebrew "bootstrapping via official installer (no existing output for a few seconds is normal)" >&2
-	NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL "$brew_install_url")"
-	if [[ ! -x "$brew_shellenv" ]]; then
+	archive_url="$(devsetup_config advanced.git.homebrewInstallUrl https://github.com/Homebrew/brew/archive/refs/heads/master.tar.gz)"
+	parent="$(dirname "$prefix")"
+	if ! mkdir -p "$parent"; then
+		printf 'Unable to create the Homebrew parent directory: %s\n' "$parent" >&2
 		return 1
 	fi
-	eval "$("$brew_shellenv" shellenv)"
-	command -v brew >/dev/null 2>&1
+	if ! stage="$(mktemp -d "$parent/.linuxbrew-install.XXXXXX")"; then
+		printf 'Unable to create a temporary Homebrew staging directory under: %s\n' "$parent" >&2
+		return 1
+	fi
+	devsetup_status install Homebrew "installing user-local Homebrew to $prefix" >&2
+	if ! curl -fsSL "$archive_url" | tar -xzf - --strip-components=1 -C "$stage"; then
+		rm -rf "$stage"
+		return 1
+	fi
+	if ! mv "$stage" "$prefix"; then
+		rm -rf "$stage"
+		printf 'Unable to move the staged Homebrew installation to: %s\n' "$prefix" >&2
+		return 1
+	fi
+	if ! devsetup_activate_homebrew; then
+		rm -rf "$prefix"
+		printf 'Homebrew could not run from the user-local prefix; removed incomplete install: %s\n' "$prefix" >&2
+		return 1
+	fi
+	devsetup_persist_homebrew_shellenv "$brew_path"
 }
 
 # Shared single-command Homebrew install pattern for install-php.sh,
@@ -126,10 +204,11 @@ devsetup_install_via_homebrew() {
 		if [[ -n "$command_path" ]]; then
 			devsetup_status found "$component" "$("$command_path" --version 2>&1 | head -n 1) at $command_path"
 			[[ "$check_upgrades" -eq 1 ]] && devsetup_check_homebrew_upgrade "$component" "$formula"
-		elif command -v brew >/dev/null 2>&1; then
-			devsetup_status install "$component" "would install '$formula' via Homebrew"
 		else
-			devsetup_status warn "$component" "missing and Homebrew is not installed"
+			case "$(uname -s 2>/dev/null)" in
+				Darwin|Linux) devsetup_status install "$component" "would install '$formula' via user-local Homebrew" ;;
+				*) devsetup_status warn "$component" "missing and Homebrew is unavailable on this platform" ;;
+			esac
 		fi
 		return 0
 	fi
@@ -169,7 +248,7 @@ devsetup_install_via_homebrew() {
 # Silent when Homebrew is unavailable or the formula is already current.
 devsetup_check_homebrew_upgrade() {
 	local component="$1" formula="$2" outdated installed latest reader update_count
-	command -v brew >/dev/null 2>&1 || return 0
+	devsetup_activate_homebrew || return 0
 	outdated="$(brew outdated --formula --json=v2 "$formula" 2>/dev/null || true)"
 	if [[ -n "$outdated" ]]; then
 		update_count=0
@@ -196,7 +275,7 @@ devsetup_check_homebrew_upgrade() {
 # Removes a Homebrew-managed formula. Only ever called when --uninstall is passed explicitly.
 devsetup_uninstall_via_homebrew() {
 	local component="$1" formula="$2" audit="${3:-0}"
-	if ! command -v brew >/dev/null 2>&1; then
+	if ! devsetup_activate_homebrew; then
 		devsetup_status warn "$component" "Homebrew is unavailable; cannot uninstall"
 		return 1
 	fi

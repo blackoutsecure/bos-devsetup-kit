@@ -90,9 +90,13 @@ if (-not $pythonExe) {
     if ($wingetCommand) {
         Write-DevSetupStatus install "Python" "installing $wingetPackageId via winget (per-user, no admin, no GUI)"
         & winget.exe install --id $wingetPackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
-        $installed = Get-ChildItem (Join-Path $installRoot $versionGlob) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($installed) {
-            $pythonExe = $installed.FullName
+        if ($LASTEXITCODE -eq 0) {
+            $installed = Get-ChildItem (Join-Path $installRoot $versionGlob) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($installed) {
+                $pythonExe = $installed.FullName
+            }
+        } else {
+            Write-DevSetupStatus warn "Python" "winget could not install $wingetPackageId for the current user; falling back to user-local uv"
         }
     }
 }

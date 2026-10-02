@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG per-user, then applies VS Code settings that follow you through
+Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG per-user, plus BusyBox on Windows, then applies VS Code settings that follow you through
 Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
 in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
@@ -19,11 +19,23 @@ in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 | Platform        | Needs                                                                                                                                                                                   |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep, and Packer (falls back to `uv` for Python). Prettier uses npm after Node.js is present.          |
+| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep, BusyBox, and Packer (falls back to `uv` for Python). Prettier uses npm after Node.js is present. |
 | macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm after Node.js is present.                              |
 | Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm after Node.js is present. |
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
+
+### No-admin limitations
+
+- Windows installs always request WinGet's user scope. If a package does not support user scope,
+  setup reports the failure and stops; it never retries with machine scope or requests elevation.
+- macOS and Linux bootstrap Homebrew from its source archive into `$HOME/.linuxbrew`. Homebrew
+  documents this as its unsupported "untar anywhere" mode, so bottles may be unavailable and a
+  formula may need to build from source. Setup never falls back to `/opt/homebrew`,
+  `/home/linuxbrew`, `sudo`, or another system-owned prefix.
+- A new macOS installation still needs Xcode Command Line Tools for Git and source builds. Apple
+  provides no silent no-admin installation path, so run `xcode-select --install` yourself when the
+  tools are absent.
 
 ## Quick start
 
@@ -78,6 +90,11 @@ tool installation. Set `user.install.shellcheck` to `false` to skip it.
 
 ripgrep (`rg`) is installed by default for fast recursive repository searches.
 Set `user.install.ripgrep` to `false` to skip it.
+
+BusyBox is installed by default on Windows through WinGet (`frippery.busybox-w32`) to provide
+its Unix utilities through one user-local executable. On macOS and Linux the setup detects an
+existing `busybox` command but does not install or remove one because no supported user-local
+package source is available. Set `user.install.busybox` to `false` to skip the check.
 
 HashiCorp Packer is installed by default for building VM images such as the SkillForge lab
 appliance OVA. Windows uses WinGet (`Hashicorp.Packer`); macOS and Linux use HashiCorp's own
@@ -179,7 +196,8 @@ run-through, reporting newer versions with a new `[update]` tag and, where the p
 it, the installed and latest versions. They never apply upgrades automatically.
 `-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
 Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, and Packer via the same package manager that installed them (winget or npm
-on Windows, Homebrew or npm on macOS/Linux); Git is intentionally excluded since removing it would also need to
+on Windows, Homebrew or npm on macOS/Linux). BusyBox is removed only on Windows, where the kit
+manages it through WinGet; Unix installations are left untouched. Git is intentionally excluded since removing it would also need to
 unwind the credential/identity config this kit writes.
 
 ## Audit output
@@ -275,6 +293,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.install.powershell`                   | `true`                                                                                                                                                                               | Run the PowerShell 7 step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                                                         |
 | `user.install.shellcheck`                   | `true`                                                                                                                                                                               | Run the ShellCheck CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                                                       |
 | `user.install.ripgrep`                      | `true`                                                                                                                                                                               | Run the ripgrep (`rg`) CLI step. macOS/Linux use Homebrew; Windows uses WinGet.                                                                                                   |
+| `user.install.busybox`                      | `true`                                                                                                                                                                               | Install BusyBox through WinGet on Windows; detect an existing command on macOS/Linux.                                                                                             |
 | `user.install.packer`                       | `true`                                                                                                                                                                               | Run the HashiCorp Packer CLI step. macOS/Linux use the `hashicorp/tap` Homebrew tap; Windows uses WinGet.                                                                         |
 | `user.install.gpg`                          | `true`                                                                                                                                                                               | Run the GPG step. macOS/Linux use Homebrew; Windows configures PortableGit's bundled GPG.                                                                                         |
 | `user.install.vscodeSettings`               | `true`                                                                                                                                                                               | Apply any VS Code settings at all.                                                                                                                                                |
@@ -320,8 +339,8 @@ are not meant for day-to-day editing.
 | `advanced.git.portableReleaseApiUrl`                              | git-for-windows latest release API         | Where the PortableGit build is discovered.                                                                                  |
 | `advanced.git.portableAssetPattern`                               | `PortableGit-*64-bit.7z.exe`               | Which release asset to download.                                                                                            |
 | `advanced.git.homebrewFormula`                                    | `git`                                      | Formula used on macOS/Linux.                                                                                                |
-| `advanced.git.homebrewInstallUrl`                                 | Homebrew `install.sh`                      | Used only when Homebrew is missing on Linux.                                                                                |
-| `advanced.git.linuxbrewShellenv`                                  | `/home/linuxbrew/.linuxbrew/bin/brew`      | Path used to load brew into the shell after install.                                                                        |
+| `advanced.git.homebrewInstallUrl`                                 | Homebrew source archive                    | Archive extracted into `$HOME/.linuxbrew` when Homebrew is missing on macOS/Linux.                                          |
+| `advanced.git.linuxbrewShellenv`                                  | `$HOME/.linuxbrew/bin/brew`                | User-local Homebrew executable loaded after install and persisted in `.profile` or `.zprofile`.                             |
 | `advanced.git.credential.windows.helper`                          | `manager`                                  | Git Credential Manager.                                                                                                     |
 | `advanced.git.credential.windows.credentialStore`                 | `wincredman`                               | Windows Credential Manager backing store.                                                                                   |
 | `advanced.git.credential.windows.guiPrompt`                       | `false`                                    | Keeps GCM from opening blocking dialogs.                                                                                    |
@@ -344,6 +363,8 @@ are not meant for day-to-day editing.
 | `advanced.php.wingetPackageId`                                    | `PHP.PHP`                                  | Package used on Windows for PHP validation.                                                                                 |
 | `advanced.powershell.homebrewFormula`                             | `powershell`                               | Formula used on macOS/Linux for the PowerShell extension.                                                                   |
 | `advanced.powershell.wingetPackageId`                             | `Microsoft.PowerShell`                     | Package used on Windows for the PowerShell extension.                                                                       |
+| `advanced.busybox.wingetPackageId`                                | `frippery.busybox-w32`                     | Package used on Windows.                                                                                                    |
+| `advanced.busybox.windowsSearchPaths`                             | WinGet `Links` and package folders         | Where an existing `busybox.exe` is discovered.                                                                              |
 | `advanced.packer.homebrewFormula`                                 | `hashicorp/tap/packer`                     | Tap-qualified formula used on macOS/Linux.                                                                                  |
 | `advanced.packer.wingetPackageId`                                 | `Hashicorp.Packer`                         | Package used on Windows.                                                                                                    |
 | `advanced.packer.windowsSearchPaths`                              | WinGet `Links` and package folders         | Where an existing `packer.exe` is discovered.                                                                               |

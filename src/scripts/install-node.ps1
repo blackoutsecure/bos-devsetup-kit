@@ -48,6 +48,9 @@ if (-not $nodeCommand -or -not $npmCommand) {
 
     Write-DevSetupStatus install "Node.js" "installing $NodePackage via winget (per-user, no admin, no GUI)"
     & winget.exe install --id $NodePackage -e --scope user --accept-package-agreements --accept-source-agreements --silent
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget failed to install $NodePackage for the current user (exit code $LASTEXITCODE). This package may not support user scope. Install a user-local Node.js distribution from https://nodejs.org/ and run setup again; this kit will not retry with admin rights."
+    }
 
     $configuredPaths = Get-DevSetupValue $config "advanced.node.windowsSearchPaths" @(
         "%ProgramFiles%\nodejs\node.exe",
