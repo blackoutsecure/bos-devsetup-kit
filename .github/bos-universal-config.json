@@ -9,7 +9,8 @@
             "yamllint",
             "shellcheck",
             "python_ecosystem"
-        ]
+        ],
+        "disabled_services": ["dependabot_actions", "dependabot_pip"]
     },
     "organization": {
         "runners": {
