@@ -17,6 +17,7 @@ param(
     [string]$GitInstallDir,
     [string]$PythonVersion,
     [switch]$SkipVSCodeSettings,
+    [switch]$SkipSettingsSync,
     [switch]$SkipUpgradeCheck,
     [switch]$CheckUpgradesOnly,
     [switch]$Uninstall,
@@ -77,17 +78,12 @@ function Write-DevSetupConfiguration {
     Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Prettier=$((Get-DevSetupValue $Config 'user.install.prettier' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
     Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), ripgrep=$((Get-DevSetupValue $Config 'user.install.ripgrep' $true)), BusyBox=$((Get-DevSetupValue $Config 'user.install.busybox' $true)), Packer=$((Get-DevSetupValue $Config 'user.install.packer' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
     Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
-    Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $false)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github'))"
+    Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $true)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github')), skip=$SkipSettingsSync"
     Write-Host "    MCP servers:     $mcpCount configured"
     Write-Host "    Dev containers:  defaults=$((Get-DevSetupValue $Config 'user.install.devcontainerDefaults' $true)), base=$((Get-DevSetupValue $Config 'user.devcontainers.baseImage' 'not configured'))"
     Write-Host "    Config sections: user, advanced"
 }
 
-try {
-    Clear-Host -ErrorAction Stop
-} catch {
-    # Non-interactive hosts may not provide a console handle to clear.
-}
 $configPath = $DevSetupConfigPath
 $config = Get-DevSetupConfig $configPath
 $scripts = Join-Path $PSScriptRoot "src\scripts"
@@ -313,7 +309,11 @@ if ($configureVSCode) {
         if ($phpExe -and (Test-Path $phpExe)) { $arguments += @("--php-path", $phpExe) }
         if ($powerShellExe -and (Test-Path $powerShellExe)) { $arguments += @("--powershell-path", $powerShellExe) }
         if ($Audit) { $arguments += "--dry-run" }
+        if ($SkipSettingsSync) { $arguments += "--skip-settings-sync" }
         & $pythonExe $arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "VS Code configuration failed (exit code $LASTEXITCODE). Review the output above before retrying."
+        }
     } else {
         Write-DevSetupStatus warn "vscode" "Python not on PATH; run src/configure-vscode.py manually from a new terminal"
     }
@@ -324,6 +324,7 @@ if ($Audit) {
     Write-Host "Audit complete. Nothing was installed or changed. Re-run without -Audit to apply."
 } else {
     Write-Host "Setup complete."
+    Write-DevSetupStatus skip "restart" "VS Code and terminal sessions remain open. If PATH or extensions need a restart, save your work and reopen VS Code or start a new terminal yourself when ready."
 }
 
 Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit

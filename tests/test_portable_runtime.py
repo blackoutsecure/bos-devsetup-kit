@@ -1,0 +1,131 @@
+import base64
+import hashlib
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+
+
+PWSH = shutil.which("pwsh")
+MODULE = Path(__file__).resolve().parents[1] / "src" / "config.ps1"
+
+
+@unittest.skipUnless(PWSH and os.name == "nt", "Windows PowerShell runtime test")
+class PortableRuntimeTests(unittest.TestCase):
+    def run_install(self, tool, *, bad_hash=False, existing=False, outside_home=False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive = root / "fixture.zip"
+            exe_name = "node.exe" if tool == "node" else "pwsh.exe"
+            architecture = (
+                "arm64"
+                if "ARM64" in (
+                    os.environ.get("PROCESSOR_ARCHITECTURE", "")
+                    + os.environ.get("PROCESSOR_ARCHITEW6432", "")
+                )
+                else "x64"
+            )
+            archive_root = f"node-v24.0.0-win-{architecture}/" if tool == "node" else ""
+            with zipfile.ZipFile(archive, "w") as handle:
+                handle.writestr(archive_root + exe_name, b"test runtime fixture")
+            digest = "0" * 64 if bad_hash else hashlib.sha256(archive.read_bytes()).hexdigest()
+            destination = root / "runtime"
+            if existing:
+                destination.mkdir()
+                (destination / "keep.txt").write_text("preserve")
+            install_dir = root.parent / "outside-devsetup-test" if outside_home else destination
+            harness = r"""
+$ErrorActionPreference = 'Stop'
+. 'MODULE_PATH'
+$env:USERPROFILE = 'USER_HOME'
+$global:metadataCalls = 0
+function Add-DevSetupUserPath { param($Directory, [switch]$Prepend); Write-Host "PATH $Directory" }
+function Invoke-RestMethod {
+    param($Uri, $TimeoutSec)
+    $global:metadataCalls++
+    if ($Uri -like '*index.json') {
+        return [pscustomobject]@{ version='v24.0.0'; lts='test'; files=@('win-ARCH-zip') }
+    }
+    return [pscustomobject]@{
+        tag_name='v7.6.0'
+        assets=@([pscustomobject]@{
+            name='PowerShell-7.6.0-win-ARCH.zip'
+            digest='sha256:DIGEST'
+            browser_download_url='https://example.test/runtime.zip'
+        })
+    }
+}
+function Invoke-WebRequest {
+    param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec)
+    if ($Uri -like '*SHASUMS256.txt') {
+        return [pscustomobject]@{Content='DIGEST  node-v24.0.0-win-ARCH.zip'}
+    }
+    Copy-Item 'ARCHIVE_PATH' $OutFile
+}
+$config = [pscustomobject]@{advanced=[pscustomobject]@{TOOL=[pscustomobject]@{portableInstallDir='INSTALL_DIR'}}}
+$first = Install-DevSetupPortableRuntime -Config $config -Tool TOOL
+$before = (Get-Item $first).LastWriteTimeUtc
+$second = Install-DevSetupPortableRuntime -Config $config -Tool TOOL
+if ($first -ne $second -or $before -ne (Get-Item $second).LastWriteTimeUtc -or $global:metadataCalls -ne 1) {
+    throw 'Portable installation was not idempotent'
+}
+Write-Host 'PASS: installed twice with one metadata request'
+"""
+            for key, value in {
+                "MODULE_PATH": str(MODULE),
+                "USER_HOME": str(root),
+                "ARCHIVE_PATH": str(archive),
+                "INSTALL_DIR": str(install_dir),
+                "TOOL": tool,
+                "ARCH": architecture,
+                "DIGEST": digest,
+            }.items():
+                harness = harness.replace(key, value.replace("'", "''"))
+            encoded = base64.b64encode(harness.encode("utf-16-le")).decode("ascii")
+            result = subprocess.run(
+                [PWSH, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertFalse(list(root.glob(".devsetup-*")), "staging was not cleaned")
+            if existing:
+                self.assertEqual((destination / "keep.txt").read_text(), "preserve")
+            if bad_hash:
+                self.assertFalse(destination.exists(), "checksum failure installed a runtime")
+            return result
+
+    def test_node_archive_applies_and_is_idempotent(self):
+        result = self.run_install("node")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS: installed twice", result.stdout)
+
+    def test_powershell_archive_applies_and_is_idempotent(self):
+        result = self.run_install("powershell")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS: installed twice", result.stdout)
+
+    def test_checksum_failure_never_installs(self):
+        for tool in ("node", "powershell"):
+            with self.subTest(tool=tool):
+                result = self.run_install(tool, bad_hash=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("SHA256 verification failed", result.stderr)
+
+    def test_existing_directory_is_not_overwritten(self):
+        result = self.run_install("node", existing=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Nothing was overwritten", result.stderr)
+
+    def test_system_directory_is_rejected(self):
+        result = self.run_install("node", outside_home=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be installed below the user profile", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

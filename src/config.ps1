@@ -312,6 +312,7 @@ function Install-DevSetupWingetTool {
         [Parameter(Mandatory)][scriptblock]$Find,
         [Parameter(Mandatory)][string]$ManualInstallHint,
         [string[]]$VersionArgs = @("--version"),
+        [scriptblock]$FallbackInstall,
         [switch]$Audit,
         [switch]$CheckUpgrades
     )
@@ -324,6 +325,8 @@ function Install-DevSetupWingetTool {
             if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
         } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
             Write-DevSetupStatus install $Component "would install $PackageId via winget"
+        } elseif ($FallbackInstall) {
+            Write-DevSetupStatus install $Component "would install an official checksum-verified ZIP in the user profile"
         } else {
             Write-DevSetupStatus warn $Component "missing and winget is unavailable"
         }
@@ -332,20 +335,103 @@ function Install-DevSetupWingetTool {
 
     if (-not $exe) {
         if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-            throw "$Component is unavailable and winget is not installed. $ManualInstallHint"
+            if (-not $FallbackInstall) {
+                throw "$Component is unavailable and winget is not installed. $ManualInstallHint"
+            }
+        } else {
+            Write-DevSetupStatus install $Component "installing $PackageId via winget (per-user, no admin, no GUI)"
+            & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+            if ($LASTEXITCODE -ne 0) {
+                if (-not $FallbackInstall) {
+                    throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"
+                }
+                Write-DevSetupStatus warn $Component "user-scoped WinGet install failed; trying an official user-local ZIP instead"
+            }
+            Update-DevSetupSessionPath
+            $exe = & $Find
         }
-        Write-DevSetupStatus install $Component "installing $PackageId via winget (per-user, no admin, no GUI)"
-        & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
-        if ($LASTEXITCODE -ne 0) {
-            throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"
+        if (-not $exe -and $FallbackInstall) {
+            $exe = & $FallbackInstall
         }
-        Update-DevSetupSessionPath
-        $exe = & $Find
     }
     if (-not $exe) { throw "$Component setup completed but the executable was not found. Open a new terminal and run setup again." }
 
     Write-DevSetupStatus found $Component "$(& $exe @VersionArgs | Select-Object -First 1) at $exe"
     if ($CheckUpgrades) { Test-DevSetupWingetUpgrade -Component $Component -PackageId $PackageId }
+    return $exe
+}
+
+function Install-DevSetupPortableRuntime {
+    param(
+        [Parameter(Mandatory)]$Config,
+        [Parameter(Mandatory)][ValidateSet("node", "powershell")][string]$Tool
+    )
+
+    $defaultDir = if ($Tool -eq "node") { "%LOCALAPPDATA%\Programs\nodejs" } else { "%LOCALAPPDATA%\Programs\PowerShell" }
+    $installDir = [IO.Path]::GetFullPath((Expand-DevSetupPath (Get-DevSetupValue $Config "advanced.$Tool.portableInstallDir" $defaultDir)))
+    $userRoot = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\') + '\'
+    if (-not $installDir.StartsWith($userRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Portable $Tool must be installed below the user profile, not $installDir."
+    }
+    $exeName = if ($Tool -eq "node") { "node.exe" } else { "pwsh.exe" }
+    $exe = Join-Path $installDir $exeName
+    if (Test-Path $exe) {
+        Add-DevSetupUserPath $installDir -Prepend
+        return $exe
+    }
+    if (Test-Path $installDir) {
+        throw "Portable destination $installDir already exists without $exeName; inspect it manually. Nothing was overwritten."
+    }
+    $architecture = if ("$env:PROCESSOR_ARCHITECTURE $env:PROCESSOR_ARCHITEW6432" -match "ARM64") { "arm64" } elseif ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+    if ($Tool -eq "node") {
+        $baseUrl = Get-DevSetupValue $Config "advanced.node.portableBaseUrl" "https://nodejs.org/dist"
+        $releases = Invoke-RestMethod -Uri "$baseUrl/index.json" -TimeoutSec 30
+        $release = $releases | Where-Object { $_.lts } | Select-Object -First 1
+        if (-not $release -or $release.files -notcontains "win-$architecture-zip") {
+            throw "The current Node.js LTS has no ZIP for Windows $architecture. No older, potentially unsupported runtime was selected."
+        }
+        $archiveRoot = "node-$($release.version)-win-$architecture"
+        $assetName = "$archiveRoot.zip"
+        $url = "$baseUrl/$($release.version)/$assetName"
+        $checksums = (Invoke-WebRequest -Uri "$baseUrl/$($release.version)/SHASUMS256.txt" -UseBasicParsing -TimeoutSec 30).Content
+        $hashLine = $checksums -split "\r?\n" | Where-Object { $_ -match ("^[a-fA-F0-9]{64}\s+\*?" + [regex]::Escape($assetName) + "$") } | Select-Object -First 1
+        if (-not $hashLine) { throw "Official Node.js checksums do not include $assetName." }
+        $expectedHash = ($hashLine -split '\s+')[0]
+    } else {
+        $releaseApi = Get-DevSetupValue $Config "advanced.powershell.portableReleaseApiUrl" "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
+        $release = Invoke-RestMethod -Uri $releaseApi -TimeoutSec 30
+        $version = $release.tag_name -replace '^v', ''
+        $assetName = "PowerShell-$version-win-$architecture.zip"
+        $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+        if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
+            throw "Official PowerShell release metadata has no checksum-verified $assetName."
+        }
+        $expectedHash = $Matches[1]
+        $url = $asset.browser_download_url
+        $archiveRoot = ""
+    }
+    $parent = Split-Path -Parent $installDir
+    New-Item -Path $parent -ItemType Directory -Force | Out-Null
+    $stage = Join-Path $parent (".devsetup-{0}" -f [guid]::NewGuid())
+    New-Item -Path $stage -ItemType Directory | Out-Null
+    try {
+        $archive = Join-Path $stage "runtime.zip"
+        Write-DevSetupStatus install $Tool "downloading official $assetName to user-local staging (deadline 600s)"
+        Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing -TimeoutSec 600
+        $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash
+        if ($actualHash -ne $expectedHash) { throw "SHA256 verification failed for $assetName. Nothing was installed." }
+        $expanded = Join-Path $stage "expanded"
+        Expand-Archive -Path $archive -DestinationPath $expanded
+        $source = if ($archiveRoot) { Join-Path $expanded $archiveRoot } else { $expanded }
+        if (-not (Test-Path (Join-Path $source $exeName))) {
+            throw "$assetName does not contain the expected $exeName. Nothing was installed."
+        }
+        Move-Item -Path $source -Destination $installDir
+    } finally {
+        Remove-Item -LiteralPath $stage -Recurse -Force
+    }
+    Add-DevSetupUserPath $installDir -Prepend
+    Write-DevSetupStatus install $Tool "installed official portable runtime to $installDir; start a new terminal yourself when ready"
     return $exe
 }
 
@@ -388,10 +474,10 @@ function Uninstall-DevSetupWingetTool {
         return
     }
     if ($Audit) {
-        Write-DevSetupStatus remove $Component "would uninstall $PackageId via winget"
+        Write-DevSetupStatus remove $Component "would uninstall user-scoped $PackageId via winget; machine installations are left alone"
         return
     }
-    & winget.exe uninstall --id $PackageId -e --accept-source-agreements 2>$null | Out-Null
+    & winget.exe uninstall --id $PackageId -e --scope user --accept-source-agreements
     if ($LASTEXITCODE -eq 0) {
         Write-DevSetupStatus remove $Component "uninstalled $PackageId via winget"
     } else {

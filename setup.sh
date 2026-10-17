@@ -21,12 +21,14 @@ audit=0
 uninstall=0
 check_upgrades_only=0
 skip_upgrade_check=0
+skip_settings_sync=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--audit) audit=1 ;;
 		--uninstall) uninstall=1 ;;
 		--check-upgrades-only) check_upgrades_only=1 ;;
 		--skip-upgrade-check) skip_upgrade_check=1 ;;
+		--skip-settings-sync) skip_settings_sync=1 ;;
 		*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -44,6 +46,11 @@ case "$os" in
 		exit 1
 		;;
 esac
+
+if [[ "$EUID" -eq 0 && "$audit" -eq 0 ]]; then
+	printf 'Run setup as a non-root user with a writable HOME. Do not use sudo. Use --audit for root-only inspection.\n' >&2
+	exit 1
+fi
 
 check_upgrades=1
 if [[ $check_upgrades_only -eq 0 ]]; then
@@ -224,6 +231,9 @@ fi
 if devsetup_enabled user.install.vscodeSettings; then
 	if [[ -n "$python_command" ]]; then
 		vscode_args=(--config "$DEVSETUP_CONFIG_FILE" --python-path "$python_command")
+		if [[ $skip_settings_sync -eq 1 ]]; then
+			vscode_args+=(--skip-settings-sync)
+		fi
 		if [[ -n "$git_command" ]]; then
 			vscode_args+=(--git-path "$git_command")
 		fi
@@ -250,6 +260,7 @@ if [[ $audit -eq 1 ]]; then
 	echo "Audit complete. Nothing was installed or changed. Re-run without --audit to apply."
 else
 	echo "Setup complete."
+	devsetup_status skip restart "VS Code and terminal sessions remain open. If PATH or extensions need a restart, save your work and reopen VS Code or start a new terminal yourself when ready."
 fi
 
 devsetup_summary "$DEVSETUP_STATUS_LOG" "$audit"

@@ -10,11 +10,20 @@ param(
     [ValidatePattern("^[a-z_][a-z0-9_-]*$")]
     [string]$UserName,
     [switch]$Audit,
-    [switch]$Configure
+    [switch]$Configure,
+    [switch]$EnablePasswordlessSudo,
+    [switch]$RestartDistribution
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "src\config.ps1")
+
+if (($EnablePasswordlessSudo -or $RestartDistribution) -and -not $Configure) {
+    throw "-EnablePasswordlessSudo and -RestartDistribution require -Configure and apply only to this run."
+}
+if ($UserName -eq "root") {
+    throw "-UserName must be a non-root user."
+}
 
 function Invoke-Wsl {
     param([string[]]$Arguments)
@@ -57,7 +66,7 @@ function Get-WslUserState {
   if (-not $homeDirectory -or -not (Test-WslCommand ($BaseArguments + @("--exec", "test", "-d", $homeDirectory)))) { $problems += "home directory is missing" }
   elseif (-not (Test-WslCommand ($BaseArguments + @("--exec", "test", "-w", $homeDirectory)))) { $problems += "home directory is not writable" }
   if (-not $shell -or -not (Test-WslCommand ($BaseArguments + @("--exec", "test", "-x", $shell)))) { $problems += "login shell is unavailable" }
-  if (-not (Test-WslCommand ($BaseArguments + @("--exec", "sudo", "-n", "true")))) { $problems += "passwordless sudo is unavailable" }
+  if ($EnablePasswordlessSudo -and -not (Test-WslCommand ($BaseArguments + @("--exec", "sudo", "-n", "true")))) { $problems += "passwordless sudo is unavailable" }
 
   return [pscustomobject]@{
     Name = $Name
@@ -91,11 +100,11 @@ $target = if ($Distribution) { $Distribution } else { "the default distribution"
 $currentUserState = Get-WslUserState $wslArguments $currentUser
 
 if ($currentUserState.MeetsCriteria) {
-  Write-DevSetupStatus found "WSL" "$target starts as $currentUser with a writable home, login shell, and passwordless sudo"
+  Write-DevSetupStatus found "WSL" "$target starts as $currentUser with a writable home and login shell"
     exit 0
 }
 
-if (-not $Configure) {
+if (-not $Configure -or $Audit) {
   $mode = if ($Audit) { "would configure" } else { "run with -Configure -UserName <name> to configure" }
   Write-DevSetupStatus warn "WSL" "$target is not ready: $($currentUserState.Problems -join '; '); $mode a non-root default user"
     exit 0
@@ -108,12 +117,16 @@ if (-not $UserName) {
   $UserName = $currentUser
 }
 
+if ($RestartDistribution -and -not $Distribution) {
+    throw "-RestartDistribution requires -Distribution <name>; other distributions will not be stopped."
+}
+
 $rootArguments = @()
 if ($Distribution) { $rootArguments += @("-d", $Distribution) }
 $rootArguments += @("-u", "root", "--exec", "id", "-u", $UserName)
 $userExists = Test-WslCommand $rootArguments
 if ($userExists) {
-  Write-DevSetupStatus found "WSL" "$UserName already exists; updating its WSL access"
+  Write-DevSetupStatus found "WSL" "$UserName already exists; configuring its default-user setting"
 } else {
   Write-DevSetupStatus install "WSL" "creating $UserName in $target"
 }
@@ -123,9 +136,18 @@ user_name="$1"
 if ! id -u "$user_name" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$user_name"
 fi
+'@
+if ($EnablePasswordlessSudo) {
+    Write-DevSetupStatus warn "WSL" "passwordless sudo explicitly enabled for $UserName for this run"
+    $configurationScript += @'
+
 printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$user_name" > "/etc/sudoers.d/$user_name"
 chmod 0440 "/etc/sudoers.d/$user_name"
 visudo -cf "/etc/sudoers.d/$user_name"
+'@
+}
+$configurationScript += @'
+
 config_file=/etc/wsl.conf
 temp_file="$(mktemp)"
 if [ -f "$config_file" ]; then
@@ -157,8 +179,13 @@ rm -f "$temp_file"
 '@
 Invoke-WslRootScript $configurationScript $UserName
 
-Write-DevSetupStatus install "WSL" "restarting WSL to apply default user"
-Invoke-Wsl @("--shutdown") | Out-Null
+if (-not $RestartDistribution) {
+    Write-DevSetupStatus warn "WSL" "default-user configuration written; restart pending. VS Code and all terminals remain open. Save Linux work, then manually terminate $target when ready and reopen it to verify the default user. To authorize a targeted restart on a future run, pass -Configure -Distribution <name> -RestartDistribution."
+    return
+}
+
+Write-DevSetupStatus warn "WSL" "explicit restart override: terminating only $Distribution; its active Linux processes will end"
+Invoke-Wsl @("--terminate", $Distribution) | Out-Null
 $verifyArguments = @()
 if ($Distribution) { $verifyArguments += @("-d", $Distribution) }
 $verifiedUser = (Invoke-Wsl ($verifyArguments + @("--exec", "whoami")) | Select-Object -Last 1).Trim()
@@ -169,4 +196,4 @@ $verifiedState = Get-WslUserState $verifyArguments $verifiedUser
 if (-not $verifiedState.MeetsCriteria) {
   throw "WSL user $verifiedUser is not ready: $($verifiedState.Problems -join '; ')"
 }
-Write-DevSetupStatus found "WSL" "$target starts as $verifiedUser with a writable home, login shell, and passwordless sudo"
+Write-DevSetupStatus found "WSL" "$target starts as $verifiedUser with a writable home and login shell"

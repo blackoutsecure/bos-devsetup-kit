@@ -19,18 +19,28 @@ it, reporting each decision in the terminal. Nothing requires WSL, sudo, or a GU
 
 ## Requirements
 
-| Platform        | Needs                                                                                                                                                                                   |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows         | PowerShell 5.1+. `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep, BusyBox, and Packer (falls back to `uv` for Python). Prettier uses npm after Node.js is present. |
-| macOS           | Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm after Node.js is present.                              |
-| Ubuntu / Debian | Homebrew is installed under `$HOME` automatically if missing; used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm after Node.js is present. |
+Platform requirements:
+
+- **Windows:** PowerShell 5.1+. WinGet for PHP, ShellCheck, ripgrep, BusyBox, and Packer.
+  Official portable ZIP fallbacks for Node.js and PowerShell; `uv` fallback for Python.
+  Prettier uses npm.
+- **macOS:** Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell,
+  ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm.
+- **Ubuntu / Debian:** Homebrew is installed under `$HOME` automatically if missing;
+  used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG.
+  Prettier uses npm.
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
 ### No-admin limitations
 
-- Windows installs always request WinGet's user scope. If a package does not support user scope,
-  setup reports the failure and stops; it never retries with machine scope or requests elevation.
+- Windows WinGet installs always request user scope. Node.js and PowerShell 7 fall back to
+  official portable ZIPs if WinGet is missing, fails, or does not produce an executable.
+  ZIPs are SHA256-verified against official release metadata, staged, then installed under
+  `%LOCALAPPDATA%\Programs`; existing destination content is never overwritten.
+  Python can fall back to user-local `uv`. Other unsupported packages report failure rather
+  than retrying with machine scope or requesting elevation. WinGet uninstall is user-scoped
+  too; portable ZIP fallbacks are deliberately left in place, not recursively removed.
 - macOS and Linux bootstrap Homebrew from its source archive into `$HOME/.linuxbrew`. Homebrew
   documents this as its unsupported "untar anywhere" mode, so bottles may be unavailable and a
   formula may need to build from source. Setup never falls back to `/opt/homebrew`,
@@ -65,6 +75,14 @@ Run an audit first to see what would happen:
 ```
 
 Audit mode installs nothing, writes no files, and does not touch git config or `PATH`.
+Run setup from a normal, non-elevated account with a writable home directory. The Bash
+entrypoint rejects non-audit runs as root; do not run it with `sudo`. Existing working
+system-installed tools can be reused without elevation; they do not need to be reinstalled.
+
+Setup never closes or reloads VS Code, terminates existing terminal sessions, or restarts
+WSL as part of its default flow. It prints manual restart guidance in the terminal after
+applying changes. Save work and restart only when you choose. There is no persistent
+"restart automatically" configuration; the optional WSL helper has a per-run override below.
 
 ### Optional WSL user setup
 
@@ -75,16 +93,30 @@ It never installs WSL or a distribution. Audit first:
 .\setup-wsl.ps1 -Audit
 ```
 
-To create or configure a non-root default user with passwordless `sudo`, run:
+To create or configure a non-root default user without granting passwordless `sudo`, run:
 
 ```powershell
 .\setup-wsl.ps1 -Configure -UserName <linux-user>
 ```
 
-Pass `-Distribution <name>` to target a specific installed distribution. Configuration restarts WSL, ending active
-Linux processes, and is intended for development environments that need non-root access plus `sudo`, such as
-loop-device integration tests. A default user that already has a writable home, executable login shell, and
-passwordless `sudo` is reported as found and left unchanged, including with `-Configure`.
+Pass `-Distribution <name>` to target a specific installed distribution. A non-root user with
+a writable home and executable login shell is healthy; passwordless `sudo` is not required.
+`-Audit` takes precedence over `-Configure` and never writes or restarts anything.
+
+Configuration writes the default-user setting but leaves VS Code, terminals, and WSL running.
+The terminal reports **restart pending**; it does not claim that the new default has been
+verified. Save Linux work, manually terminate the selected distribution, then reopen it and
+run the audit again. To explicitly authorize termination and verification for one run:
+
+```powershell
+.\setup-wsl.ps1 -Configure -UserName <linux-user> -Distribution <name> -RestartDistribution
+```
+
+This ends processes only in the named distribution, never all WSL distributions. Do not use
+the override while it hosts VS Code, a remote workspace, or work you want to keep running.
+Development tasks that genuinely require passwordless `sudo`, such as loop-device tests,
+can separately opt in with `-EnablePasswordlessSudo -Configure`. Neither override is stored
+as a default. The helper does not remove an existing sudo grant automatically.
 
 The setup also installs the ShellCheck CLI by default, so the local Bash lint
 checks used by the Blackout Secure repositories can run without a separate
@@ -647,13 +679,60 @@ python .\src\configure-vscode.py [--dry-run] [--config <path>] [--git-path <p>] 
 python3 ./src/configure-vscode.py [--dry-run]
 ```
 
-One cross-platform script, so the settings payload has a single definition. It writes three files
+One cross-platform script, so the settings payload has a single definition. It writes these files
 per configured profile, all covered by Settings Sync:
 
 - `settings.json` — the merged settings described in [Precedence](#precedence).
 - `snippets/jsonc.json` — a `devcontainer` snippet. Type `devcontainer` in a new
   `.devcontainer/devcontainer.json`.
 - `mcp.json` — the configured MCP servers.
+- `prompts/terminal-execution.instructions.md` — personal terminal and process guidance.
+  Existing user-authored instructions are preserved and reported for manual comparison.
+  Disable installation with `user.vscode.terminalInstructions.manage: false`.
+
+#### Copilot and terminal defaults
+
+The baseline selects Agent, Copilot harness, Auto, the Standard (`balance`) tier, and queued
+follow-up messages. Dictation and voice mode (including their buttons) are disabled.
+Terminal output is shown in the Terminal panel where the harness supports it, shell integration
+is enabled, and persistent process revival is disabled. Existing terminals are not closed.
+
+These chat settings target recent VS Code/Copilot builds; preview features and model access
+depend on the installed version, account, and organization policy. The Windows Copilot SDK
+harness does **not** support the Agent Host integrated-terminal override in the currently
+reviewed build. Terminal settings cannot force SDK shell output into the main panel there;
+select the Local harness when integrated-terminal interaction is more important than the
+Copilot harness. Instructions require the agent to disclose this limitation.
+
+Autopilot/Allow All and Fusion are explicit opt-ins for a personal copy of the config:
+
+```json
+{
+    "user": {
+        "vscode": {
+            "copilot": {
+                "autopilot": true,
+                "fusion": true
+            }
+        }
+    }
+}
+```
+
+Merge those keys into the existing config; do not replace the file with this fragment.
+Both default to `false` so the kit does not grant unattended permissions or enable
+experimental model routing for every user. Fusion presents Auto as Fusion; `balance` is
+its Standard tier. Changing Fusion settings may restart the **Copilot runtime**, not the
+VS Code application. Settings under `user.vscode.settings` still win over these presets.
+Autopilot/Allow All grants broad tool access; it is not permission to restart the editor
+or terminate a user's terminals. New-conversation defaults do not rewrite a running chat.
+
+The instruction file sets finite-command budgets (normally 120 seconds, or 600 for builds),
+foreground execution, bounded readiness checks for servers/watchers/debuggers, and cleanup
+of owned temporary helpers. Instructions guide the agent; they are not a guaranteed process
+watchdog. VS Code's 60-second silence threshold returns control without killing a process.
+The applier separately enforces CLI deadlines: 120 seconds for queries/sync and 600 seconds
+for extension changes, whose output remains visible. A CLI timeout is an error, not success.
 
 It then reconciles extensions through the VS Code CLI: installs anything missing from
 `user.vscode.extensions.install`, and reports (or removes) anything present from `.block`. See
@@ -666,6 +745,53 @@ rereading the files and VS Code CLI output. If validation passes, `user.vscode.s
 one final guarded sync request: the script checks VS Code's global user-data state for
 `sync.enable=true` and the configured account provider, then runs the configured VS Code CLI sync
 arguments. It skips sync when Settings Sync is off, the provider is not GitHub, or the CLI is absent.
+The final request is **enabled by default**, including when the config key is omitted.
+It also requires a nonempty cached Settings Sync account reference and a supported provider
+(`github` or `microsoft`); `requiredProvider` defaults to `github`. To use an existing
+Microsoft Settings Sync account, explicitly set `requiredProvider` to `microsoft`.
+Missing/unreadable state, no cached account, or a provider mismatch produces an explicit
+skip (and an unreadable database produces a warning). The database is opened read-only and
+closed promptly. A cached account is not proof of a current OAuth session: VS Code itself
+validates authentication and may pause uploads until the user signs in again.
+
+To opt out, set `user.vscode.settingsSync.syncAfterSetup` to `false`, or skip just one run:
+
+```powershell
+.\setup.ps1 -SkipSettingsSync
+python .\src\configure-vscode.py --skip-settings-sync
+```
+
+```bash
+./setup.sh --skip-settings-sync
+```
+
+These options skip only the kit's final request; they do not disable VS Code's ongoing
+automatic sync or change Copilot session-sync preferences. Audit never makes a sync request.
+All settings, snippets, instructions, extensions, and MCP changes and their validation finish
+before the final request. Validation failure prevents that request. There is no blanket
+guarantee that every local file is cloud-synced: VS Code resource exclusions and policies apply,
+and the separate Copilot MCP file, tool installations, and credentials remain local.
+
+An accepted `--sync on` request only confirms that sync was enabled, not that a cloud upload
+finished. Check **Settings Sync: Show Synced Data** in VS Code for the remote settings and
+instruction files. The script never edits the sync database, handles OAuth tokens, or
+changes your public GitHub profile/bio.
+
+#### Copilot session sync
+
+Session history sync is separate from VS Code Settings Sync. The baseline enables
+`chat.sessionSync.enabled` and its required dependency,
+`github.copilot.chat.localIndex.enabled`. This allows Copilot session data to sync to the
+signed-in GitHub.com account for cross-device history. It requires a supported Copilot
+sign-in and can be blocked by organization policy; setup does not sign in, override policy,
+or claim that all existing session history has finished uploading.
+
+To disable session-history uploads, set
+`user.vscode.settings["chat.sessionSync.enabled"]` to `false`. Session sync may upload
+conversation content; review this privacy choice before using the baseline in sensitive
+workspaces. The preferences themselves can roam through VS Code Settings Sync, but session
+data is uploaded independently by Copilot. A successful settings upload is not proof of a
+completed session-history upload.
 
 The merge is additive and idempotent: existing settings and snippets are preserved, and JSONC
 comments and trailing commas are tolerated on read. The file is rewritten as plain JSON, so comments
@@ -673,6 +799,13 @@ in `settings.json` are **not** preserved.
 
 Settings Sync itself must still be enabled once from VS Code's Accounts menu — OAuth cannot be scripted.
 Binaries, `PATH` entries, credentials, and git identity stay machine-local and are never uploaded.
+`advanced.node.portableBaseUrl` / `portableInstallDir` and
+`advanced.powershell.portableReleaseApiUrl` / `portableInstallDir` control the Windows ZIP
+fallbacks. Keep sources official and destinations under the user's profile. Node chooses
+the current LTS, not an obsolete release to accommodate an unsupported architecture;
+PowerShell requires the release asset's SHA256 digest. Downloads have finite timeouts and
+checksum failures leave no installation behind. These fallbacks do not enable automatic
+runtime upgrades or change the existing opt-in uninstall behavior.
 
 ## Repository hygiene
 

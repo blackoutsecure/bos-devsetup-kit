@@ -35,7 +35,7 @@ if ($Audit) {
     } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
         Write-DevSetupStatus install "Node.js" "would install $NodePackage via winget"
     } else {
-        Write-DevSetupStatus warn "Node.js" "missing and winget is unavailable"
+        Write-DevSetupStatus install "Node.js" "would install an official checksum-verified LTS ZIP in the user profile"
     }
     return
 }
@@ -43,13 +43,14 @@ if ($Audit) {
 if (-not $nodeCommand -or -not $npmCommand) {
     $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
     if (-not $wingetCommand) {
-        throw "Node.js and npm are unavailable and winget is not installed. Install Node.js LTS from https://nodejs.org/ or provide winget.exe in PATH. No GUI installer was launched."
-    }
-
-    Write-DevSetupStatus install "Node.js" "installing $NodePackage via winget (per-user, no admin, no GUI)"
-    & winget.exe install --id $NodePackage -e --scope user --accept-package-agreements --accept-source-agreements --silent
-    if ($LASTEXITCODE -ne 0) {
-        throw "winget failed to install $NodePackage for the current user (exit code $LASTEXITCODE). This package may not support user scope. Install a user-local Node.js distribution from https://nodejs.org/ and run setup again; this kit will not retry with admin rights."
+        Write-DevSetupStatus warn "Node.js" "winget is unavailable; using an official user-local LTS ZIP"
+    } else {
+        Write-DevSetupStatus install "Node.js" "installing $NodePackage via winget (per-user, no admin, no GUI)"
+        & winget.exe install --id $NodePackage -e --scope user --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+        if ($LASTEXITCODE -ne 0) {
+            Write-DevSetupStatus warn "Node.js" "user-scoped WinGet install failed; trying an official user-local LTS ZIP instead"
+        }
+        Update-DevSetupSessionPath
     }
 
     $configuredPaths = Get-DevSetupValue $config "advanced.node.windowsSearchPaths" @(
@@ -66,6 +67,10 @@ if (-not $nodeCommand -or -not $npmCommand) {
         Add-DevSetupUserPath $nodeCommand.DirectoryName -Prepend
     } else {
         $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    }
+    if (-not $nodeCommand -or -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+        $portableExe = Install-DevSetupPortableRuntime -Config $config -Tool node
+        $nodeCommand = Get-Item $portableExe
     }
 }
 

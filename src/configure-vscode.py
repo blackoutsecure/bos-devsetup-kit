@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +218,15 @@ def build_settings(
         ] = [powershell_path]
 
     # User overrides win over everything above.
+    if get(config, "user.vscode.copilot.autopilot", False):
+        settings["chat.permissions.default"] = "autopilot"
+        settings["chat.defaultConfiguration"] = {
+            "mode": "autopilot",
+            "approvals": "allowAll",
+        }
+    if get(config, "user.vscode.copilot.fusion", False):
+        settings["chat.copilot.ensemble.enabled"] = True
+        settings["chat.copilot.hydraFusion.enabled"] = "v2"
     settings.update(get(config, "user.vscode.settings", {}))
     return settings
 
@@ -299,10 +309,22 @@ def assert_no_overlap(wanted, blocked, kind: str, setting: str) -> None:
         )
 
 
-def run_cli(cli: str, *args: str) -> tuple[int, str]:
-    result = subprocess.run(
-        [cli, *args], capture_output=True, text=True, check=False
-    )
+def run_cli(
+    cli: str, *args: str, timeout: int = 120, capture_output: bool = True
+) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            [cli, *args], capture_output=capture_output, text=True, check=False, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as exc:
+        for output in (exc.stdout, exc.stderr):
+            if output:
+                print(output.decode(errors="replace") if isinstance(output, bytes) else output)
+        raise SystemExit(
+            f"VS Code CLI exceeded {timeout}s: {cli} {' '.join(args)}. "
+            "The CLI was stopped; VS Code was not closed. Check the terminal "
+            "before retrying; a timeout does not prove Settings Sync completed."
+        ) from exc
     return result.returncode, (result.stdout or "") + (result.stderr or "")
 
 
@@ -381,7 +403,10 @@ def manage_extensions(config: dict, dry_run: bool) -> None:
             if dry_run:
                 status("install", "ext", f"would install {ext} ({profile})")
                 continue
-            code, output = run_cli(cli, "--install-extension", ext, "--force")
+            status("install", "ext", f"installing {ext} ({profile}); deadline 600s")
+            code, output = run_cli(
+                cli, "--install-extension", ext, "--force", timeout=600, capture_output=False
+            )
             if code == 0:
                 status("install", "ext", f"installed {ext} ({profile})")
             else:
@@ -394,7 +419,9 @@ def manage_extensions(config: dict, dry_run: bool) -> None:
             if dry_run:
                 status("install", "ext", f"would uninstall blocked {ext} ({profile})")
                 continue
-            code, output = run_cli(cli, "--uninstall-extension", ext)
+            code, output = run_cli(
+                cli, "--uninstall-extension", ext, timeout=600, capture_output=False
+            )
             if code == 0:
                 status("install", "ext", f"uninstalled blocked {ext} ({profile})")
             else:
@@ -679,19 +706,25 @@ def read_state_value(config: dict, user_dir: Path, key: str) -> Any:
     if not state_db.is_file():
         return None
     try:
-        with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(
+            state_db.resolve().as_uri() + "?mode=ro", uri=True, timeout=2
+        )) as connection:
             row = connection.execute(
                 "select value from ItemTable where key = ?", (key,)
             ).fetchone()
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        status(
+            "warn", "VS Code User Sync",
+            f"cannot read sync state from {state_db}: {exc}; sync will be skipped",
+        )
         return None
     return None if row is None else row[0]
 
 
 def sync_settings(config: dict, dry_run: bool) -> None:
-    """Request VS Code Settings Sync only when GitHub sync is already enabled."""
+    """Request sync last, only with enabled sync and a supported cached account."""
     sync_config = get(config, "user.vscode.settingsSync", {})
-    if not get(sync_config, "syncAfterSetup", False):
+    if not get(sync_config, "syncAfterSetup", True):
         status("skip", "VS Code User Sync", "user.vscode.settingsSync.syncAfterSetup is false")
         return
 
@@ -699,6 +732,7 @@ def sync_settings(config: dict, dry_run: bool) -> None:
     sync_keys = get(config, "advanced.vscode.settingsSync", {})
     enabled_key = get(sync_keys, "enabledKey", "sync.enable")
     provider_key = get(sync_keys, "accountProviderKey", "userDataSyncAccountProvider")
+    account_key = get(sync_keys, "accountPreferenceKey", "userDataSyncAccountPreference")
     required_provider = get(sync_config, "requiredProvider", "github")
     cli_args = get(sync_keys, "syncCliArgs", ["--sync", "on"])
 
@@ -714,8 +748,18 @@ def sync_settings(config: dict, dry_run: bool) -> None:
         if not enabled:
             status("skip", "VS Code User Sync", f"Settings Sync is not enabled ({profile})")
             continue
+        if provider not in {"github", "microsoft"}:
+            status("skip", "VS Code User Sync", f"unsupported or missing account provider ({profile})")
+            continue
         if required_provider and provider != required_provider.lower():
             status("skip", "VS Code User Sync", f"provider is {provider or 'unknown'}, not {required_provider}")
+            continue
+        account = read_state_value(config, user_dir, account_key)
+        if not account or (isinstance(account, (str, bytes)) and not account.strip()):
+            status(
+                "skip", "VS Code User Sync",
+                f"no cached signed-in sync account ({profile}); sign in and enable Settings Sync in VS Code",
+            )
             continue
 
         command = clis.get(profile)
@@ -724,14 +768,54 @@ def sync_settings(config: dict, dry_run: bool) -> None:
             status("skip", "VS Code User Sync", f"'{command}' CLI not on PATH ({profile})")
             continue
         if dry_run:
-            status("found", "VS Code User Sync", f"GitHub Settings Sync already enabled ({profile})")
+            status(
+                "found", "VS Code User Sync",
+                f"{provider} Settings Sync enabled with a cached account ({profile}); "
+                "dry-run; no sync request made",
+            )
             continue
 
         code, output = run_cli(cli, *cli_args)
         if code == 0:
-            status("found", "VS Code User Sync", f"GitHub Settings Sync enabled; sync requested ({profile})")
+            status(
+                "found", "VS Code User Sync",
+                f"{provider} Settings Sync enabled; CLI enable request accepted ({profile}); "
+                "VS Code must validate current authentication and complete cloud uploads; "
+                "check Settings Sync: Show Synced Data. Copilot session uploads are separate.",
+            )
         else:
             status("warn", "VS Code User Sync", f"sync request failed: {output.strip()[:120]}")
+
+
+def manage_terminal_instructions(config: dict, dry_run: bool) -> None:
+    """Install syncable personal instructions without replacing user-authored content."""
+    if not get(config, "user.vscode.terminalInstructions.manage", True):
+        status("skip", "instructions", "terminal instruction management is disabled")
+        return
+    template = (REPO_ROOT / "src" / "terminal-execution.instructions.md").read_text(
+        encoding="utf-8"
+    )
+    for profile, user_dir in profile_targets(config):
+        if not user_dir.is_dir():
+            continue
+        path = user_dir / "prompts" / "terminal-execution.instructions.md"
+        if path.exists():
+            if path.read_text(encoding="utf-8-sig") == template:
+                status("found", "instructions", f"terminal instructions ok ({profile})")
+            else:
+                status(
+                    "warn", "instructions",
+                    f"preserved existing {path}; compare with src/terminal-execution.instructions.md "
+                    "for bounded waits and restart-consent guidance",
+                )
+            continue
+        status(
+            "install", "instructions",
+            f"{'would add' if dry_run else 'adding'} terminal instructions ({profile})",
+        )
+        if not dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(template, encoding="utf-8")
 
 
 def manage_mcp(config: dict, dry_run: bool) -> None:
@@ -826,6 +910,10 @@ def main() -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="report changes without writing files"
     )
+    parser.add_argument(
+        "--skip-settings-sync", action="store_true",
+        help="skip the final Settings Sync request for this run without changing sync preferences",
+    )
     args = parser.parse_args()
 
     config = load_json(args.config)
@@ -848,11 +936,22 @@ def main() -> int:
         for user_dir in targets:
             apply(user_dir, settings, snippet, args.dry_run)
 
+    manage_terminal_instructions(config, args.dry_run)
     manage_extensions(config, args.dry_run)
     manage_mcp(config, args.dry_run)
     manage_copilot_mcp(config, args.dry_run)
     if validate_install(config, settings, snippet, args.dry_run):
-        sync_settings(config, args.dry_run)
+        if args.skip_settings_sync:
+            status("skip", "VS Code User Sync", "--skip-settings-sync was passed")
+        else:
+            sync_settings(config, args.dry_run)
+    if not args.dry_run:
+        status(
+            "skip", "restart",
+            "VS Code and existing terminals were left open. If an extension or PATH change "
+            "needs a restart, save your work and reopen VS Code or start a new terminal "
+            "yourself when ready; no restart is performed automatically.",
+        )
     return 0
 
 

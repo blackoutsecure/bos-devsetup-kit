@@ -14,4 +14,5 @@ if ($Uninstall) {
 $find = { Get-Command pwsh.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source }
 
 Install-DevSetupWingetTool -Component "PowerShell" -PackageId $packageId -Find $find -Audit:$Audit -CheckUpgrades:$CheckUpgrades `
+    -FallbackInstall { Install-DevSetupPortableRuntime -Config $config -Tool powershell } `
     -ManualInstallHint "Install it from https://learn.microsoft.com/powershell/."

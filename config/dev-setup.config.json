@@ -40,6 +40,13 @@
                 "syncAfterSetup": true,
                 "requiredProvider": "github"
             },
+            "copilot": {
+                "autopilot": false,
+                "fusion": false
+            },
+            "terminalInstructions": {
+                "manage": true
+            },
             "extensions": {
                 "manage": true,
                 "uninstallBlocked": true,
@@ -78,6 +85,21 @@
                 ]
             },
             "settings": {
+                "agents.voice.enabled": false,
+                "agents.voice.showButton": false,
+                "chat.defaultModel": "auto",
+                "chat.defaultToCopilotHarness": true,
+                "chat.editor.preferCopilotHarness": true,
+                "chat.newSession.defaultMode": "agent",
+                "chat.requestQueuing.defaultAction": "queue",
+                "chat.sessionSync.enabled": true,
+                "chat.tools.terminal.enforceTimeoutFromModel": true,
+                "chat.tools.terminal.idleSilenceTimeoutMs": 60000,
+                "chat.tools.terminal.outputLocation": "terminal",
+                "dictation.enabled": false,
+                "dictation.showButton": false,
+                "github.copilot.chat.autoModeTierOverride": "balance",
+                "github.copilot.chat.localIndex.enabled": true,
                 "diffEditor.maxComputationTime": 0,
                 "editor.defaultFormatter": "esbenp.prettier-vscode",
                 "editor.formatOnSave": true,
@@ -107,9 +129,12 @@
                 "settingsSync.keybindingsPerPlatform": false,
                 "terminal.integrated.enableMultiLinePasteWarning": "never",
                 "terminal.integrated.enablePersistentSessions": false,
+                "terminal.integrated.hideOnStartup": "never",
                 "terminal.integrated.persistentSessionReviveProcess": "never",
+                "terminal.integrated.shellIntegration.enabled": true,
                 "update.showReleaseNotes": false,
                 "window.confirmSaveUntitledWorkspace": false,
+                "window.confirmBeforeClose": "always",
                 "workbench.startupEditor": "none",
                 "yaml.disableSchemaDetection": [
                     "**/.github/workflows/*.yml",
@@ -223,6 +248,8 @@
         },
         "node": {
             "wingetPackageId": "OpenJS.NodeJS.LTS",
+            "portableBaseUrl": "https://nodejs.org/dist",
+            "portableInstallDir": "%LOCALAPPDATA%\\Programs\\nodejs",
             "homebrewFormula": "node",
             "windowsSearchPaths": [
                 "%ProgramFiles%\\nodejs\\node.exe",
@@ -245,7 +272,9 @@
         },
         "powershell": {
             "homebrewFormula": "powershell",
-            "wingetPackageId": "Microsoft.PowerShell"
+            "wingetPackageId": "Microsoft.PowerShell",
+            "portableReleaseApiUrl": "https://api.github.com/repos/PowerShell/PowerShell/releases/latest",
+            "portableInstallDir": "%LOCALAPPDATA%\\Programs\\PowerShell"
         },
         "shellcheck": {
             "homebrewFormula": "shellcheck",
@@ -307,6 +336,7 @@
                 "stateDbRelativePath": "globalStorage/state.vscdb",
                 "enabledKey": "sync.enable",
                 "accountProviderKey": "userDataSyncAccountProvider",
+                "accountPreferenceKey": "userDataSyncAccountPreference",
                 "syncCliArgs": ["--sync", "on"]
             },
             "extensionCli": {
