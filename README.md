@@ -4,9 +4,11 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG per-user, plus BusyBox on Windows, then applies VS Code settings that follow you through
-Settings Sync. Every step auto-detects what is already present and skips it, reporting each decision
-in the terminal. Nothing requires WSL, sudo, or a GUI installer.
+Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
+per-user, plus BusyBox on Windows, then applies VS Code settings and portable Copilot MCP defaults.
+VS Code profile settings can follow you through Settings Sync; Copilot's separate global MCP
+config is not covered by Settings Sync. Every step auto-detects what is already present and skips
+it, reporting each decision in the terminal. Nothing requires WSL, sudo, or a GUI installer.
 
 - **Audit first.** `setup.ps1 -Audit` / `setup.sh --audit` reports what would change and writes nothing.
 - **One config.** Every tunable lives in [`config/dev-setup.config.json`](config/dev-setup.config.json).
@@ -318,6 +320,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                                                                     |
 | `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                                                            |
 | `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                                                            |
+| `user.mcp.copilotConfig.manage`              | `true`                                                                                                                                                                               | Also add portable servers to `$COPILOT_HOME/mcp-config.json` (or `~/.copilot/mcp-config.json`).                                                                                    |
 | `user.mcp.block`                            | `[]`                                                                                                                                                                                 | Server IDs that should not be configured. Reported as `[warn]` if present.                                                                                                        |
 | `user.mcp.removeBlocked`                    | `false`                                                                                                                                                                              | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                                                                     |
 | `user.devcontainers.dockerAccess`           | `"outside-of-docker"`                                                                                                                                                                | `outside-of-docker`, `in-docker`, or `none`.                                                                                                                                      |
@@ -428,8 +431,10 @@ reported as `[skip]` and everything else still runs.
 
 ### MCP servers
 
-`user.mcp.servers` is merged into each profile's `mcp.json`. The shipped default is four servers
-that need **no authentication and no local runtime beyond `npx`/`uvx`**:
+`user.mcp.servers` is merged into each profile's `mcp.json` and into the Copilot user-level
+`mcp-config.json`. The latter uses the directory in `COPILOT_HOME`, or `~/.copilot` when that
+variable is unset. The shipped default is four servers that need **no authentication and no local
+runtime beyond `npx`/`uvx`**:
 
 | Server                               | Transport     | Why it is a default                                       |
 | ------------------------------------ | ------------- | --------------------------------------------------------- |
@@ -458,6 +463,19 @@ locally instead of storing them in this repository.
 
 A server that references an `${input:id}` with no matching definition fails the run, as does a
 server listed in both `servers` and `block`.
+
+The Copilot config uses the portable `mcpServers` format and adds `tools: ["*"]` when a server
+does not define a tool list. Existing entries are never overwritten. Servers that use VS Code-only
+fields or variables (including `${input:id}` secrets) are skipped for this destination and reported;
+they remain available through the VS Code profile config. This is deliberate: the Copilot format
+cannot prompt for VS Code input variables, and the kit will not copy resolved secrets into another
+file.
+
+VS Code Settings Sync does **not** sync `$COPILOT_HOME/mcp-config.json`. The setup writes the
+portable config locally for the Copilot harness and Copilot CLI; it does not create a GitHub repo,
+push user data, or store credentials. If you want this user-level config on other machines, use a
+private repository or another secure sync method that you manage, and keep secret values in
+environment variables rather than the tracked file.
 
 ### Settings deliberately excluded
 
@@ -629,8 +647,8 @@ python .\src\configure-vscode.py [--dry-run] [--config <path>] [--git-path <p>] 
 python3 ./src/configure-vscode.py [--dry-run]
 ```
 
-One cross-platform script, so the settings payload has a single definition. It writes two files per
-configured profile, both covered by Settings Sync:
+One cross-platform script, so the settings payload has a single definition. It writes three files
+per configured profile, all covered by Settings Sync:
 
 - `settings.json` — the merged settings described in [Precedence](#precedence).
 - `snippets/jsonc.json` — a `devcontainer` snippet. Type `devcontainer` in a new
@@ -641,7 +659,8 @@ It then reconciles extensions through the VS Code CLI: installs anything missing
 `user.vscode.extensions.install`, and reports (or removes) anything present from `.block`. See
 [Extensions](#extensions).
 
-Finally it merges `user.mcp.servers` into each profile's `mcp.json`. See [MCP servers](#mcp-servers).
+Finally it merges `user.mcp.servers` into each profile's `mcp.json` and adds compatible entries
+to the Copilot user-level MCP config. See [MCP servers](#mcp-servers).
 After writes finish, it validates the managed settings, snippet, extension list, and MCP entries by
 rereading the files and VS Code CLI output. If validation passes, `user.vscode.settingsSync` allows
 one final guarded sync request: the script checks VS Code's global user-data state for

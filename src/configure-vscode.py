@@ -28,6 +28,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "config" / "dev-setup.config.json"
 
 OS_KEYS = {"Windows": "windows", "Darwin": "macos"}
+COPILOT_MCP_FIELDS = {"type", "command", "args", "env", "url", "headers", "tools"}
+VSCODE_MCP_VARIABLE = re.compile(
+    r"\$\{(?:input|config|command|env):"
+    r"|\$\{(?:workspaceFolder|workspaceRoot|workspaceFolderBasename|"
+    r"workspaceRootFolderName|cwd|pathSeparator)\}"
+)
 
 
 _SEV_COLOR = {
@@ -498,6 +504,145 @@ def missing_mcp_inputs(inputs: list, current_inputs: list) -> list[str]:
     return [i.get("id") for i in inputs if i.get("id") not in known]
 
 
+def contains_vscode_mcp_variable(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(VSCODE_MCP_VARIABLE.search(value))
+    if isinstance(value, dict):
+        return any(contains_vscode_mcp_variable(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_vscode_mcp_variable(item) for item in value)
+    return False
+
+
+def copilot_mcp_server(server: Any) -> dict | None:
+    """Return a portable Copilot server or None when VS Code-specific data is required."""
+    if not isinstance(server, dict):
+        return None
+    if set(server) - COPILOT_MCP_FIELDS:
+        return None
+    if server.get("type") not in {"stdio", "http"}:
+        return None
+    if contains_vscode_mcp_variable(server):
+        return None
+
+    portable = dict(server)
+    portable.setdefault("tools", ["*"])
+    return portable
+
+
+def copilot_mcp_config_path() -> Path:
+    """Resolve the Copilot user config, honoring COPILOT_HOME when set."""
+    copilot_home = os.environ.get("COPILOT_HOME")
+    root = (
+        Path(os.path.expandvars(copilot_home)).expanduser()
+        if copilot_home
+        else Path.home() / ".copilot"
+    )
+    return root / "mcp-config.json"
+
+
+def current_copilot_mcp_servers(current: dict, path: Path) -> dict:
+    if not isinstance(current, dict):
+        raise SystemExit(f"{path} must contain a JSON object.")
+    servers = current.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise SystemExit(f"{path} must contain an object named 'mcpServers'.")
+    return servers
+
+
+def copilot_mcp_servers(config: dict) -> dict[str, dict]:
+    """Select servers that can be represented without VS Code-only values."""
+    servers = get(config, "user.mcp.servers", {})
+    blocked = get(config, "user.mcp.block", [])
+    if not isinstance(servers, dict) or not isinstance(blocked, list):
+        raise SystemExit("user.mcp.servers must be an object and user.mcp.block a list.")
+    assert_no_overlap(servers, blocked, "MCP servers", "user.mcp.servers")
+
+    compatible: dict[str, dict] = {}
+    for name, server in servers.items():
+        if name in blocked:
+            continue
+        portable = copilot_mcp_server(server)
+        if portable is not None:
+            compatible[name] = portable
+    return compatible
+
+
+def manage_copilot_mcp(config: dict, dry_run: bool) -> None:
+    """Add portable configured MCP servers to the Copilot user config without overwrites."""
+    if not get(config, "user.install.mcpServers", True) or not get(
+        config, "user.mcp.manage", True
+    ):
+        status("skip", "Copilot MCP", "MCP management is disabled in config")
+        return
+    if not get(config, "user.mcp.copilotConfig.manage", True):
+        status("skip", "Copilot MCP", "user.mcp.copilotConfig.manage is false")
+        return
+
+    compatible = copilot_mcp_servers(config)
+    servers = get(config, "user.mcp.servers", {})
+    blocked = get(config, "user.mcp.block", [])
+    if not servers:
+        return
+
+    unsupported = [
+        name for name in servers
+        if name not in blocked and name not in compatible
+    ]
+    for name in unsupported:
+        status(
+            "warn",
+            "Copilot MCP",
+            f"skipped {name}; it needs VS Code-only fields or variables",
+        )
+    if not compatible:
+        return
+
+    path = copilot_mcp_config_path()
+    current = load_json(path)
+    existing = current_copilot_mcp_servers(current, path)
+    added = missing_mcp_servers(compatible, existing)
+    if not added:
+        status(
+            "found",
+            "Copilot MCP",
+            f"all {len(compatible)} compatible server(s) already configured",
+        )
+        return
+
+    verb = "would add" if dry_run else "added"
+    status("install", "Copilot MCP", f"{verb} {len(added)} server(s): {', '.join(added)}")
+    if not dry_run:
+        for name in added:
+            existing[name] = compatible[name]
+        current["mcpServers"] = existing
+        write_json(path, current)
+
+
+def validate_copilot_mcp(config: dict) -> None:
+    if not get(config, "user.install.mcpServers", True) or not get(
+        config, "user.mcp.manage", True
+    ) or not get(
+        config, "user.mcp.copilotConfig.manage", True
+    ):
+        status("skip", "validate", "Copilot MCP management is disabled")
+        return
+
+    compatible = copilot_mcp_servers(config)
+    if not compatible:
+        return
+
+    path = copilot_mcp_config_path()
+    current = load_json(path)
+    existing = current_copilot_mcp_servers(current, path)
+    missing = missing_mcp_servers(compatible, existing)
+    if missing:
+        raise SystemExit(
+            f"Copilot MCP validation failed; missing server(s): {', '.join(missing)}"
+        )
+    status("found", "validate", f"Copilot MCP ok ({path})")
+
+
 def validate_profile_filename(filename: str, setting: str) -> None:
     if (
         Path(filename).name != filename
@@ -515,6 +660,7 @@ def validate_install(config: dict, settings: dict, snippet, dry_run: bool) -> bo
     validate_profiles(config, settings, snippet)
     validate_extensions(config)
     validate_mcp(config)
+    validate_copilot_mcp(config)
     return True
 
 
@@ -704,6 +850,7 @@ def main() -> int:
 
     manage_extensions(config, args.dry_run)
     manage_mcp(config, args.dry_run)
+    manage_copilot_mcp(config, args.dry_run)
     if validate_install(config, settings, snippet, args.dry_run):
         sync_settings(config, args.dry_run)
     return 0

@@ -4,7 +4,7 @@ This file provides guidance to agents when working with code in this repository.
 
 ## What this is
 
-`bos-devsetup-kit` is a cross-platform developer machine setup kit for workstations **without local admin rights**. It installs a per-user toolchain — Homebrew (macOS/Linux), Git, Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep, Packer, GPG — then writes VS Code user settings, a `devcontainer` snippet, extensions, and MCP server entries into each configured VS Code profile so they follow the developer through Settings Sync. Every step detects what is already present and reports a decision instead of reinstalling. No `sudo`, root, WSL, or GUI installer is used.
+`bos-devsetup-kit` is a cross-platform developer machine setup kit for workstations **without local admin rights**. It installs a per-user toolchain — Homebrew (macOS/Linux), Git, Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep, Packer, GPG — then writes VS Code user settings, a `devcontainer` snippet, extensions, and MCP server entries into each configured VS Code profile so they follow the developer through Settings Sync. Compatible MCP servers are also added to the Copilot user-level config for Copilot harness/CLI sessions; that separate file is not covered by Settings Sync. Every step detects what is already present and reports a decision instead of reinstalling. No `sudo`, root, WSL, or GUI installer is used.
 
 Three platform paths. Windows runs `setup.cmd` -> `setup.ps1` under Windows PowerShell 5.1+ (`setup.cmd` invokes `powershell.exe -NoProfile -ExecutionPolicy Bypass`), using `winget` for Node.js, Python, PHP, PowerShell 7, ShellCheck, ripgrep and Packer, a downloaded PortableGit build for Git, and PortableGit's bundled `usr\bin\gpg.exe` for GPG. macOS and Linux run `setup.sh` under Bash using Homebrew throughout; on Linux Homebrew is bootstrapped under `$HOME` when missing. WSL is never installed or invoked by the main flow — `setup-wsl.ps1` is a separate opt-in helper that audits or fixes the default user of an _already installed_ distribution.
 
@@ -22,6 +22,7 @@ Bash scripts must run on macOS's stock **bash 3.2** (`src/config.sh` says so and
 ./setup.sh --uninstall --audit              # preview removals; Git is never removed
 bash ./src/scripts/install-node.sh --audit  # any installer runs standalone
 python3 ./src/configure-vscode.py --dry-run
+python3 -m unittest discover -s tests -v
 
 ./manage-gpg-key.sh --audit
 ./manage-gpg-key.sh --generate
@@ -32,7 +33,7 @@ python3 ./src/configure-vscode.py --dry-run
 bash -n setup.sh manage-gpg-key.sh src/config.sh src/scripts/*.sh
 shellcheck setup.sh manage-gpg-key.sh src/config.sh src/scripts/*.sh
 markdownlint-cli2 --config .markdownlint.json "**/*.md"
-python3 -m py_compile src/configure-vscode.py
+python3 -m py_compile src/configure-vscode.py tests/test_configure_vscode.py
 ```
 
 ```powershell
@@ -58,11 +59,11 @@ Invoke-ScriptAnalyzer -Path . -Recurse
 
 ## Validating changes
 
-**There is no CI in this repository and no automated test suite.** `.github/` contains only `CODEOWNERS`, `dependabot.yml`, and `bos-universal-config.json`; there is no `.github/workflows/` directory, so nothing runs on push or pull request. There is no `test/` directory and no test runner.
+**There is no CI in this repository.** `.github/` contains only `CODEOWNERS`, `dependabot.yml`, and `bos-universal-config.json`; there is no `.github/workflows/` directory, so nothing runs on push or pull request. The focused Python unit tests use the standard-library `unittest` runner under `tests/`.
 
 These scripts mutate a real machine — user `PATH`, global git config, package manager state, VS Code profile files, the GPG keyring — so reasoning about correctness is not validation and neither is reading the diff. Work in this order:
 
-1. `bash -n` then `shellcheck` on every shell script touched; `python3 -m py_compile` on the applier.
+1. `bash -n` then `shellcheck` on every shell script touched; `python3 -m py_compile` on the applier and `python3 -m unittest discover -s tests -v` for Python behavior changes.
 2. Run the affected installer standalone with `--audit` / `-Audit` and read the reported plan.
 3. Run the full entrypoint with `--audit` / `-Audit`; confirm the `Summary:` and `Recommendation:` lines describe exactly what you intend.
 4. Run it for real on a **disposable target** — a VM snapshot you can roll back, a container, or a throwaway user account. Never your own configured machine. A Linux container is the cheapest path for `setup.sh`; a Windows VM is required for `setup.ps1`, `setup-wsl.ps1`, and PortableGit, which have no non-Windows equivalent.
@@ -107,7 +108,7 @@ src/scripts/install-*.ps1        One per tool, winget-based; each runs standalon
 
 `src/config.sh` also holds the shared Homebrew pattern (`devsetup_install_via_homebrew`, `devsetup_uninstall_via_homebrew`, `devsetup_check_homebrew_upgrade`, `devsetup_ensure_homebrew`), which is why `install-php.sh`, `install-powershell.sh`, `install-shellcheck.sh`, `install-ripgrep.sh`, and `install-gpg.sh` are each about 30 lines. `src/config.ps1` holds the winget equivalent (`Install-DevSetupWingetTool`, `Uninstall-DevSetupWingetTool`, `Test-DevSetupWingetUpgrade`, `Find-DevSetupWingetExecutable`) plus `Add-DevSetupUserPath`, which compares whole `PATH` entries rather than substrings.
 
-`src/configure-vscode.py` is the only cross-platform implementation, so the settings payload has a single definition. It merges `settings.json`, writes `snippets/jsonc.json`, reconciles extensions via the VS Code CLI, merges MCP servers into `mcp.json`, revalidates by rereading, and only then may request Settings Sync. The merge is additive and idempotent — existing keys and existing MCP servers are preserved, never overwritten, and JSONC is tolerated on read. Files are rewritten as plain JSON, so comments in an existing `settings.json` are **not** preserved.
+`src/configure-vscode.py` is the only cross-platform implementation, so the settings payload has a single definition. It merges `settings.json`, writes `snippets/jsonc.json`, reconciles extensions via the VS Code CLI, merges MCP servers into each profile's `mcp.json` and compatible entries into `$COPILOT_HOME/mcp-config.json` (falling back to `~/.copilot/mcp-config.json`), revalidates by rereading, and only then may request Settings Sync. The merge is additive and idempotent — existing keys and existing MCP servers are preserved, never overwritten, and JSONC is tolerated on read. VS Code-only MCP variables/fields are skipped for the Copilot config and reported. Copilot's user config is not covered by VS Code Settings Sync. Files are rewritten as plain JSON, so comments in an existing `settings.json` are **not** preserved.
 
 ### Configuration
 
