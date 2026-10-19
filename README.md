@@ -346,7 +346,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                                                                           |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                                                                         |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                                                                 |
-| `user.vscode.extensions.install`            | 18 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                                                                        |
+| `user.vscode.extensions.install`            | 19 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                                                                        |
 | `user.vscode.extensions.block`              | 11 extensions                                                                                                                                                                        | Never installed. Reported as `[warn]` if already present.                                                                                                                         |
 | `user.vscode.extensions.uninstallBlocked`   | `true`                                                                                                                                                                               | Remove blocked extensions that are installed instead of just reporting them.                                                                                                      |
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                                                                     |
@@ -437,10 +437,18 @@ Command-line parameters override the config for a single run.
 formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`), Python
 (`python`, `pylance`, `debugpy`), GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
 containers and remote (`remote-containers`, `vscode-containers`), plus `powershell`, `yaml`,
-`makefile-tools`, `code-spell-checker`, and `markdown-all-in-one`.
+`makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
+(`ms-playwright.playwright`) for running and debugging browser tests from VS Code.
 
-Stack-specific extensions are intentionally left out — Azure, Go, Swift, docs-authoring, and similar
-belong to individual workflows, not a shared baseline. Add whatever you need to the list.
+The extension is installed into each configured VS Code profile, but Playwright itself remains a
+per-project dependency. Use the extension's **Test: Install Playwright** command or
+`npm init playwright@latest` in a project to create its test setup and install the selected browsers;
+the setup kit does not install browser binaries globally.
+
+Other stack-specific extensions are intentionally left out — Azure, Go, Swift, docs-authoring, and
+similar belong to individual workflows, not a shared baseline. Playwright is the exception because
+its extension adds editor support while leaving test dependencies and browser installs
+project-scoped. Add whatever else you need to the list.
 
 `user.vscode.extensions.block` covers extensions that are **deprecated or superseded** by something
 in the install list, so having both causes duplicate diagnostics or fighting formatters:

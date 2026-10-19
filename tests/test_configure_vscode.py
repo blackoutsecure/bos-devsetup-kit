@@ -152,6 +152,10 @@ class DefaultSettingsTests(unittest.TestCase):
     def settings(self):
         return configure_vscode.build_settings(self.config, None, None, None, None)
 
+    def test_playwright_extension_is_in_the_managed_profile_baseline(self):
+        extensions = self.config["user"]["vscode"]["extensions"]["install"]
+        self.assertIn("ms-playwright.playwright", extensions)
+
     def test_baseline_keeps_terminals_visible_and_voice_disabled(self):
         settings = self.settings()
         self.assertEqual(settings["chat.requestQueuing.defaultAction"], "queue")

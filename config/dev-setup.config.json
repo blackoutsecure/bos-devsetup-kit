@@ -60,6 +60,7 @@
                     "github.vscode-pull-request-github",
                     "hashicorp.hcl",
                     "ms-azuretools.vscode-containers",
+                    "ms-playwright.playwright",
                     "ms-python.debugpy",
                     "ms-python.python",
                     "ms-python.vscode-pylance",
