@@ -473,8 +473,8 @@ reported as `[skip]` and everything else still runs.
 
 `user.mcp.servers` is merged into each profile's `mcp.json` and into the Copilot user-level
 `mcp-config.json`. The latter uses the directory in `COPILOT_HOME`, or `~/.copilot` when that
-variable is unset. The shipped default is four servers that need **no authentication and no local
-runtime beyond `npx`/`uvx`**:
+variable is unset. The four shipped defaults use remote HTTP services or local `npx`/`uvx`
+runtimes. GitHub requires authentication; the other defaults do not:
 
 | Server                               | Transport     | Why it is a default                                       |
 | ------------------------------------ | ------------- | --------------------------------------------------------- |
@@ -516,6 +516,45 @@ portable config locally for the Copilot harness and Copilot CLI; it does not cre
 push user data, or store credentials. If you want this user-level config on other machines, use a
 private repository or another secure sync method that you manage, and keep secret values in
 environment variables rather than the tracked file.
+
+#### GitHub MCP and your GitHub-synced profile
+
+The [official GitHub MCP server](https://github.com/github/github-mcp-server) is already included
+in the shipped setup configuration. Its VS Code user-profile definition is:
+
+```json
+{
+    "servers": {
+        "io.github.github/github-mcp-server": {
+            "type": "http",
+            "url": "https://api.githubcopilot.com/mcp/"
+        }
+    }
+}
+```
+
+This hosted server needs no Docker container or local GitHub MCP binary. Complete the host's
+GitHub OAuth sign-in when prompted; no token belongs in the setup configuration. Authentication
+and server trust are local to each host and might need approval again on another device.
+
+To keep this setup in your GitHub-backed VS Code cloud profile:
+
+1. Sign in to **Settings Sync** with GitHub. Run **Settings Sync: Configure** and select
+   **MCP Servers**.
+2. Run the kit's audit, then apply setup using the [quick start](#quick-start). It adds missing
+   server definitions to the configured Stable and Insiders user profiles without replacing
+   existing servers. It also maintains Copilot's separate local config.
+3. Open **Settings Sync: Show Synced Data** and confirm the MCP data contains
+   `io.github.github/github-mcp-server` with the endpoint above. An accepted `--sync on` request
+   alone is not proof that the cloud upload finished.
+4. On another device, let Settings Sync restore the user-profile configuration, complete any
+   authentication or trust prompts, and request the GitHub MCP `get_me` tool to verify access.
+
+Only the user-profile `mcp.json` participates in
+[MCP Settings Sync](https://code.visualstudio.com/docs/agents/run/manage-mcp-servers#synchronize-mcp-configuration-across-devices).
+Copilot's `mcp-config.json` remains local; run the kit on each machine that needs the Copilot
+harness or CLI configuration. This does not change your public GitHub profile or publish
+credentials.
 
 ### Settings deliberately excluded
 

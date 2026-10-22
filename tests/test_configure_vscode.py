@@ -145,6 +145,91 @@ class CopilotMcpConfigTests(unittest.TestCase):
                 )
 
 
+class GitHubMcpSetupTests(unittest.TestCase):
+    def setUp(self):
+        self.config = configure_vscode.load_json(configure_vscode.DEFAULT_CONFIG)
+        self.server_name = "io.github.github/github-mcp-server"
+        self.server = self.config["user"]["mcp"]["servers"][self.server_name]
+
+    def test_official_remote_and_github_sync_are_shipped_defaults(self):
+        self.assertEqual(
+            self.server,
+            {"type": "http", "url": "https://api.githubcopilot.com/mcp/"},
+        )
+        self.assertTrue(self.config["user"]["install"]["mcpServers"])
+        self.assertTrue(self.config["user"]["mcp"]["manage"])
+        self.assertTrue(self.config["user"]["mcp"]["copilotConfig"]["manage"])
+        sync = self.config["user"]["vscode"]["settingsSync"]
+        self.assertTrue(sync["syncAfterSetup"])
+        self.assertEqual(sync["requiredProvider"], "github")
+        self.assertEqual(
+            configure_vscode.copilot_mcp_servers(self.config)[self.server_name],
+            {**self.server, "tools": ["*"]},
+        )
+
+    def test_audit_apply_and_second_run_preserve_profile_and_copilot_config(self):
+        self.config["user"]["mcp"]["servers"] = {self.server_name: self.server}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            profiles = [(name, root / name) for name in ("stable", "insiders")]
+            existing_server = {"type": "http", "url": "https://example.test/mcp"}
+            profile_original = {
+                "servers": {"existing": existing_server},
+                "inputs": [{"id": "existing", "type": "promptString"}],
+            }
+            for _, user_dir in profiles:
+                configure_vscode.write_json(user_dir / "mcp.json", profile_original)
+            copilot_path = root / "copilot" / "mcp-config.json"
+            copilot_original = {"mcpServers": {"existing": existing_server}}
+            configure_vscode.write_json(copilot_path, copilot_original)
+            paths = [user_dir / "mcp.json" for _, user_dir in profiles] + [copilot_path]
+
+            def snapshots():
+                return {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in paths
+                }
+
+            with (
+                patch("configure_vscode.profile_targets", return_value=profiles),
+                patch("configure_vscode.copilot_mcp_config_path", return_value=copilot_path),
+            ):
+                before = snapshots()
+                configure_vscode.manage_mcp(self.config, dry_run=True)
+                configure_vscode.manage_copilot_mcp(self.config, dry_run=True)
+                self.assertEqual(snapshots(), before)
+
+                configure_vscode.manage_mcp(self.config, dry_run=False)
+                configure_vscode.manage_copilot_mcp(self.config, dry_run=False)
+                configure_vscode.validate_mcp(self.config)
+                configure_vscode.validate_copilot_mcp(self.config)
+                for _, user_dir in profiles:
+                    self.assertEqual(
+                        configure_vscode.load_json(user_dir / "mcp.json"),
+                        {
+                            **profile_original,
+                            "servers": {
+                                **profile_original["servers"],
+                                self.server_name: self.server,
+                            },
+                        },
+                    )
+                self.assertEqual(
+                    configure_vscode.load_json(copilot_path),
+                    {
+                        "mcpServers": {
+                            **copilot_original["mcpServers"],
+                            self.server_name: {**self.server, "tools": ["*"]},
+                        }
+                    },
+                )
+
+                after = snapshots()
+                configure_vscode.manage_mcp(self.config, dry_run=False)
+                configure_vscode.manage_copilot_mcp(self.config, dry_run=False)
+                self.assertEqual(snapshots(), after)
+
+
 class DefaultSettingsTests(unittest.TestCase):
     def setUp(self):
         self.config = configure_vscode.load_json(configure_vscode.DEFAULT_CONFIG)
