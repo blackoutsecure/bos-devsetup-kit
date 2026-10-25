@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -501,7 +502,7 @@ def validate_mcp(config: dict) -> None:
     for profile, user_dir in targets:
         current = load_json(user_dir / filename)
         existing, current_inputs = current_mcp_state(current)
-        missing = missing_mcp_servers(servers, existing)
+        missing = missing_mcp_servers(profile_mcp_servers(servers, user_dir), existing)
         if missing:
             raise SystemExit(
                 f"MCP validation failed for {profile}; missing server(s): "
@@ -566,6 +567,202 @@ def copilot_mcp_config_path() -> Path:
         else Path.home() / ".copilot"
     )
     return root / "mcp-config.json"
+
+
+def customization_migration_record(user_dir: Path) -> dict:
+    path = copilot_mcp_config_path().with_name("devsetup-agent-migrations.json")
+    state = load_json(path)
+    if not isinstance(state, dict) or not isinstance(state.get("profiles", {}), dict):
+        raise SystemExit(f"{path} must contain a JSON object with a profiles object.")
+    record = state.get("profiles", {}).get(str(user_dir.resolve()), {})
+    if (
+        not isinstance(record, dict)
+        or not isinstance(record.get("mcpServers", []), list)
+        or any(not isinstance(name, str) for name in record.get("mcpServers", []))
+        or not isinstance(record.get("terminalInstructions", False), bool)
+    ):
+        raise SystemExit(f"Invalid customization migration record for {user_dir}.")
+    return record
+
+
+def profile_mcp_servers(servers: dict, user_dir: Path) -> dict:
+    migrated = set(customization_migration_record(user_dir).get("mcpServers", []))
+    if migrated.intersection(servers):
+        path = copilot_mcp_config_path()
+        runtime = current_copilot_mcp_servers(load_json(path), path)
+        missing = migrated.intersection(servers).difference(runtime)
+        if missing:
+            raise SystemExit(
+                f"Migrated Copilot MCP server(s) missing from {path}: {', '.join(sorted(missing))}"
+            )
+    return {name: server for name, server in servers.items() if name not in migrated}
+
+
+def migration_file_bytes(path: Path) -> bytes | None:
+    if path.is_symlink():
+        raise SystemExit(f"Refusing to migrate a symbolic-link file: {path}")
+    return path.read_bytes() if path.exists() else None
+
+
+def write_migration_bytes(path: Path, content: bytes, expected: bytes | None) -> None:
+    if migration_file_bytes(path) != expected:
+        raise SystemExit(f"Migration file changed; preserved current content: {path}")
+    if content == expected:
+        return
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".devsetup-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+        if migration_file_bytes(path) != expected:
+            raise SystemExit(f"Migration file changed before writing: {path}")
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def migrate_agent_customizations(config: dict, profile: str, dry_run: bool) -> int:
+    """Move supported user customizations, retaining private recovery copies."""
+    for key in (
+        "user.install.vscodeSettings", "user.install.mcpServers", "user.mcp.manage",
+        "user.mcp.copilotConfig.manage", "user.vscode.terminalInstructions.manage",
+    ):
+        if not get(config, key, True):
+            status("skip", "migrations", f"Not Assessed: {key} is disabled")
+            return 1
+    targets = dict(profile_targets(config))
+    user_dir = targets.get(profile)
+    if user_dir is None or not user_dir.is_dir():
+        status("skip", "migrations", f"Not Assessed: no existing configured profile {profile!r}")
+        return 1
+
+    filename = get(config, "advanced.vscode.mcpFileName", "mcp.json")
+    validate_profile_filename(filename, "advanced.vscode.mcpFileName")
+    source_mcp = user_dir / filename
+    target_mcp = copilot_mcp_config_path()
+    state_path = target_mcp.with_name("devsetup-agent-migrations.json")
+    source_instruction = user_dir / "prompts" / "terminal-execution.instructions.md"
+    target_instruction = target_mcp.parent / "instructions" / source_instruction.name
+    if len({
+        path.resolve()
+        for path in (source_mcp, target_mcp, state_path, source_instruction, target_instruction)
+    }) != 5:
+        raise SystemExit("Migration source and destination paths must not overlap.")
+    originals = {
+        path: migration_file_bytes(path)
+        for path in (source_mcp, target_mcp, state_path, source_instruction, target_instruction)
+    }
+    source = load_json(source_mcp)
+    if not isinstance(source, dict) or not isinstance(source.get("servers", {}), dict):
+        raise SystemExit(f"{source_mcp} must contain a servers object.")
+    destination = load_json(target_mcp)
+    runtime = current_copilot_mcp_servers(destination, target_mcp)
+    record = dict(customization_migration_record(user_dir))
+    migrated = set(record.get("mcpServers", []))
+    compatible = copilot_mcp_servers(config)
+    retire: list[str] = []
+    for name in get(config, "user.mcp.servers", {}):
+        if name not in source.get("servers", {}):
+            if name in compatible and name in runtime:
+                migrated.add(name)
+            continue
+        portable = copilot_mcp_server(source["servers"][name])
+        if name not in compatible or portable is None:
+            raise SystemExit(
+                f"Use VS Code's native Migrate action for {name}; "
+                "VS Code-only configuration cannot be safely copied."
+            )
+        if name in runtime and copilot_mcp_server(runtime[name]) != portable:
+            raise SystemExit(f"MCP migration target conflict for {name}; nothing was overwritten.")
+        runtime.setdefault(name, portable)
+        migrated.add(name)
+        retire.append(name)
+
+    instruction = originals[source_instruction]
+    if (
+        instruction is not None and originals[target_instruction] is not None
+        and instruction != originals[target_instruction]
+    ):
+        raise SystemExit("Instruction migration target conflict; nothing was overwritten.")
+    has_instruction = instruction is not None or originals[target_instruction] is not None
+    if record.get("terminalInstructions") and not has_instruction:
+        raise SystemExit(f"Migrated terminal instructions missing: {target_instruction}")
+    missing = migrated.difference(runtime)
+    if missing:
+        raise SystemExit(f"Migrated MCP server(s) missing: {', '.join(sorted(missing))}")
+    if not migrated and not has_instruction:
+        status("skip", "migrations", "Not Assessed: no supported configured customizations found")
+        return 1
+    for path, content in originals.items():
+        if migration_file_bytes(path) != content:
+            raise SystemExit(f"Migration source or target changed during audit: {path}")
+
+    destination["mcpServers"] = runtime
+    record.update(mcpServers=sorted(migrated), terminalInstructions=has_instruction)
+    state = load_json(state_path)
+    state.setdefault("profiles", {})[str(user_dir.resolve())] = record
+    state_bytes = (json.dumps(state, indent=4) + "\n").encode("utf-8")
+    target_bytes = (json.dumps(destination, indent=4) + "\n").encode("utf-8")
+    existing_target = originals[target_mcp]
+    if existing_target is not None and load_json(target_mcp) == destination:
+        target_bytes = existing_target
+    pending = len(retire) + int(instruction is not None)
+    changed = (
+        pending or state_bytes != originals[state_path]
+        or (migrated and target_bytes != originals[target_mcp])
+    )
+    if dry_run:
+        status("install" if changed else "found", "migrations",
+               f"{'would migrate' if changed else 'already migrated'} {pending} source item(s) "
+               f"from {profile}; private backups precede source retirement")
+        status("skip", "MCP trust", "VS Code will request trust again; no trust is granted automatically")
+        return 0
+    if not changed:
+        status("found", "migrations", f"customizations already migrated ({profile}); no files changed")
+        return 0
+
+    backup_root = target_mcp.parent / "migration-backups"
+    target_mcp.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    backup_root.mkdir(mode=0o700, exist_ok=True)
+    backup = Path(tempfile.mkdtemp(prefix="agent-customizations-", dir=backup_root))
+    for path, name in (
+        (source_mcp, "source-mcp.json"),
+        (source_instruction, "source-terminal-execution.instructions.md"),
+        (target_mcp, "target-mcp-config.json"),
+        (target_instruction, "target-terminal-execution.instructions.md"),
+        (state_path, "migration-state.json"),
+    ):
+        original = originals[path]
+        if original is not None:
+            write_migration_bytes(backup / name, original, None)
+    if migrated:
+        write_migration_bytes(target_mcp, target_bytes, originals[target_mcp])
+        if load_json(target_mcp) != destination:
+            raise SystemExit("MCP migration target validation failed; sources were retained.")
+    if instruction is not None:
+        write_migration_bytes(target_instruction, instruction, originals[target_instruction])
+        if target_instruction.read_bytes() != instruction:
+            raise SystemExit("Instruction migration target validation failed; source was retained.")
+    # Record runtime ownership before retiring sources, so setup cannot recreate them.
+    write_migration_bytes(state_path, state_bytes, originals[state_path])
+    if retire:
+        for name in retire:
+            del source["servers"][name]
+        write_migration_bytes(
+            source_mcp, (json.dumps(source, indent=4) + "\n").encode("utf-8"),
+            originals[source_mcp],
+        )
+    if instruction is not None:
+        if migration_file_bytes(source_instruction) != instruction:
+            raise SystemExit("Instruction source changed; retained it and the verified target.")
+        source_instruction.unlink()
+    if source_instruction.exists() or any(
+        name in load_json(source_mcp).get("servers", {}) for name in retire
+    ):
+        raise SystemExit("Source retirement validation failed; inspect migration backups.")
+    status("found", "migrations", f"migrated {pending} source item(s) ({profile}); backups: {backup}")
+    status("skip", "MCP trust", "VS Code must request trust again; approve it yourself in the UI")
+    return 0
 
 
 def current_copilot_mcp_servers(current: dict, path: Path) -> dict:
@@ -691,6 +888,80 @@ def validate_install(config: dict, settings: dict, snippet, dry_run: bool) -> bo
     return True
 
 
+def prepare_copilot_chat_migration(config: dict, dry_run: bool) -> int:
+    """Prepare local sync preferences, leaving history verification to Copilot."""
+    if not get(config, "user.install.vscodeSettings", True):
+        status(
+            "skip", "Copilot migration",
+            "Not Assessed: VS Code settings management is disabled",
+        )
+        return 1
+
+    configured = dict(get(config, "advanced.vscode.settings", {}))
+    configured.update(get(config, "user.vscode.settings", {}))
+    required = {
+        key: configured.get(key)
+        for key in (
+            "chat.sessionSync.enabled",
+            "github.copilot.chat.localIndex.enabled",
+        )
+    }
+    disabled = [key for key, value in required.items() if value is not True]
+    if disabled:
+        status(
+            "skip", "Copilot migration",
+            "Not Assessed: explicitly enable these preferences in config after "
+            f"reviewing upload privacy and organization policy: {', '.join(disabled)}",
+        )
+        return 1
+
+    targets = [target for target in profile_targets(config) if target[1].is_dir()]
+    if not targets:
+        status(
+            "skip", "Copilot migration",
+            "Not Assessed: no configured VS Code user profile exists; "
+            "open the intended VS Code build/profile first",
+        )
+        return 1
+
+    # A malformed later profile must not leave earlier profiles partly prepared.
+    for profile, user_dir in targets:
+        path = user_dir / "settings.json"
+        if not isinstance(load_json(path), dict):
+            raise SystemExit(f"VS Code settings for {profile} must be a JSON object: {path}")
+
+    for _, user_dir in targets:
+        apply(user_dir, required, None, dry_run)
+    if dry_run:
+        status("skip", "validate", "dry-run; session-sync preferences were not changed")
+    else:
+        validate_profiles(config, required, None)
+
+    status(
+        "skip", "Copilot migration",
+        "Not Assessed: history transfer requires the SOURCE/TARGET checks below. "
+        "Local preference preparation is not migration completion.",
+    )
+    status(
+        "skip", "migration source",
+        "SOURCE: open Copilot with the intended GitHub.com account; check session "
+        "sync status for N sessions synced, not Syncing, Sync error, or Disabled by policy.",
+    )
+    status(
+        "skip", "migration target",
+        "TARGET: repeat audit/preparation, sign in to the same Copilot account, "
+        "open the repository checkout, and find and inspect a known SOURCE session. "
+        "Keep the SOURCE until history is verified; Settings Sync is separate.",
+    )
+    status(
+        "skip", "migration fallback",
+        "For legacy/local-only chats, use native Chat: Export Chat... and "
+        "Chat: Import Chat... JSON where supported, then verify the imported chat. "
+        "No chat databases, credentials, workspace paths, or files are copied.",
+    )
+    return 0
+
+
 def parse_state_bool(value: Any) -> bool:
     if isinstance(value, bytes):
         value = value.decode("utf-8", errors="replace")
@@ -798,7 +1069,14 @@ def manage_terminal_instructions(config: dict, dry_run: bool) -> None:
     for profile, user_dir in profile_targets(config):
         if not user_dir.is_dir():
             continue
-        path = user_dir / "prompts" / "terminal-execution.instructions.md"
+        migrated = customization_migration_record(user_dir).get("terminalInstructions", False)
+        path = (
+            copilot_mcp_config_path().parent / "instructions" / "terminal-execution.instructions.md"
+            if migrated
+            else user_dir / "prompts" / "terminal-execution.instructions.md"
+        )
+        if migrated and not path.is_file():
+            raise SystemExit(f"Migrated terminal instructions missing: {path}")
         if path.exists():
             if path.read_text(encoding="utf-8-sig") == template:
                 status("found", "instructions", f"terminal instructions ok ({profile})")
@@ -859,7 +1137,7 @@ def manage_mcp(config: dict, dry_run: bool) -> None:
         current = load_json(path)
         existing, current_inputs = current_mcp_state(current)
 
-        added = missing_mcp_servers(servers, existing)
+        added = missing_mcp_servers(profile_mcp_servers(servers, user_dir), existing)
         present_blocked = [name for name in blocked if name in existing]
 
         changed = False
@@ -911,6 +1189,18 @@ def main() -> int:
         "--dry-run", action="store_true", help="report changes without writing files"
     )
     parser.add_argument(
+        "--copilot-chat-migration", action="store_true",
+        help="prepare only configured Copilot session-sync preferences and show "
+        "manual migration verification steps; may enable history uploads; "
+        "use --dry-run to audit first",
+    )
+    parser.add_argument(
+        "--agent-customization-migration", metavar="PROFILE",
+        help="migrate configured portable MCP servers and terminal instructions from "
+        "one existing VS Code profile into the Copilot runtime; backs up sources "
+        "before retiring them; use --dry-run first",
+    )
+    parser.add_argument(
         "--skip-settings-sync", action="store_true",
         help="skip the final Settings Sync request for this run without changing sync preferences",
     )
@@ -919,6 +1209,15 @@ def main() -> int:
     config = load_json(args.config)
     if not config:
         print(f"Config not found at {args.config}; using built-in defaults.")
+
+    if args.copilot_chat_migration and args.agent_customization_migration:
+        parser.error("choose session-sync preparation or customization migration, not both")
+    if args.agent_customization_migration:
+        return migrate_agent_customizations(
+            config, args.agent_customization_migration, args.dry_run
+        )
+    if args.copilot_chat_migration:
+        return prepare_copilot_chat_migration(config, args.dry_run)
 
     if not get(config, "user.install.vscodeSettings", True):
         status("skip", "vscode", "user.install.vscodeSettings is false")

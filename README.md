@@ -833,8 +833,8 @@ changes your public GitHub profile/bio.
 
 Session history sync is separate from VS Code Settings Sync. The baseline enables
 `chat.sessionSync.enabled` and its required dependency,
-`github.copilot.chat.localIndex.enabled`. This allows Copilot session data to sync to the
-signed-in GitHub.com account for cross-device history. It requires a supported Copilot
+`github.copilot.chat.localIndex.enabled`. For supported Copilot harness sessions, this allows
+session data to sync to the signed-in GitHub.com account for cross-device history. It requires a supported Copilot
 sign-in and can be blocked by organization policy; setup does not sign in, override policy,
 or claim that all existing session history has finished uploading.
 
@@ -844,6 +844,9 @@ conversation content; review this privacy choice before using the baseline in se
 workspaces. The preferences themselves can roam through VS Code Settings Sync, but session
 data is uploaded independently by Copilot. A successful settings upload is not proof of a
 completed session-history upload.
+
+Use the [Copilot Chat migration process](#copilot-chat-migration-process) below for a
+source-to-target move rather than treating enabled preferences as a completed migration.
 
 The merge is additive and idempotent: existing settings and snippets are preserved, and JSONC
 comments and trailing commas are tolerated on read. The file is rewritten as plain JSON, so comments
@@ -858,6 +861,145 @@ the current LTS, not an obsolete release to accommodate an unsupported architect
 PowerShell requires the release asset's SHA256 digest. Downloads have finite timeouts and
 checksum failures leave no installation behind. These fallbacks do not enable automatic
 runtime upgrades or change the existing opt-in uninstall behavior.
+
+#### Agent runtime customization migrations
+
+**Agent Customizations > Migrations** is not session-history sync. It lists legacy
+customizations that need new locations for the Copilot agent runtime. Enabling session
+sync does not clear that dashboard.
+
+For the kit's terminal instructions and configured portable MCP servers, use this
+separate opt-in process from the kit directory. Select one existing configured profile
+(`insiders` below, or `stable`); do not run both blindly because their instruction
+contents can differ.
+
+1. **Audit** the actual customization move:
+
+   ```powershell
+   python .\src\configure-vscode.py --agent-customization-migration insiders --dry-run
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --agent-customization-migration insiders --dry-run
+   ```
+
+2. **Apply** after reviewing the plan, using the same command without `--dry-run`.
+   The process first checks every target for conflicts, then keeps private, exact-byte
+   recovery copies under `$COPILOT_HOME/migration-backups/` (default
+   `~/.copilot/migration-backups/`). Treat those copies as sensitive local data.
+   No tools are installed, session databases read, or VS Code restarts performed.
+3. **Verify** the runtime destinations:
+   - Portable configured servers already installed in that profile move from its
+     `mcp.json` `servers` object into `$COPILOT_HOME/mcp-config.json` `mcpServers`.
+     Unmanaged servers, existing nonconflicting targets, and input definitions remain.
+   - `prompts/terminal-execution.instructions.md` moves byte-for-byte into
+     `$COPILOT_HOME/instructions/terminal-execution.instructions.md`.
+   - Only after destination validation are the migrated source entries/files retired.
+     The source MCP file is rewritten as plain JSON; its original JSONC bytes are
+     preserved in the private recovery copy.
+4. **Reopen the Migrations view** and verify that the moved items no longer appear.
+   VS Code can request MCP trust again; approve that yourself after reviewing the server.
+   This process never grants trust or transfers OAuth credentials.
+5. **Rerun** the command to verify no changes. A local, per-profile
+   `$COPILOT_HOME/devsetup-agent-migrations.json` ownership record prevents later normal
+   setup runs from recreating these legacy candidates. Other profiles remain independent.
+   If the native UI already migrated an item, this command can record that ownership too.
+
+The runtime instructions and ownership record are machine-local; VS Code Settings Sync
+does not synchronize these Copilot-directory paths.
+
+The process honors the existing management opt-outs and `--config <path>`. Conflicting
+targets, changed files, symbolic-link files, or VS Code-only MCP fields stop with an
+explicit error; sources are retained. Use VS Code's native **Migrate...** action for
+servers needing input-variable, gallery, or other VS Code-specific conversion. Prompts,
+agents, hooks, and unrelated personal instructions are not silently migrated by this
+kit-specific command.
+
+For rollback, keep the private recovery directory: it contains the previous source,
+destination, and ownership-record files that existed. Inspect those copies before any
+manual restoration; do not blindly overwrite customizations subsequently edited.
+
+#### Copilot Chat migration process
+
+This section concerns **session history only**, not the
+[Agent Customizations migration dashboard](#agent-runtime-customization-migrations).
+
+The kit supports **preparing session sync**, not copying chat storage or automatically
+declaring history migrated. This separate, opt-in mode uses the existing config and
+cross-platform applier. It changes only the two session-sync preferences above in existing
+configured VS Code profile directories; it does not install tools/extensions, change MCP
+servers, request Settings Sync, read tokens, or restart VS Code. Normal setup is unchanged.
+
+Follow these stages in order:
+
+1. **Inventory and retain the source.** Identify the source machine, VS Code build/profile,
+   Copilot account, repositories, and chats you need. Keep that machine and its local
+   history intact. Session sync covers supported Copilot harness sessions; do not assume
+   legacy VS Code Chat or another harness's local history will be converted or uploaded.
+   Repository files, old absolute workspace paths, and machine-local checkpoints are not
+   migrated by this process.
+2. **Review privacy and policy.** History sync can upload conversation content to GitHub.
+   Check repository exclusions and organization policy before applying. Both preferences
+   must explicitly be `true` in `user.vscode.settings` (or inherited from
+   `advanced.vscode.settings`), and `user.install.vscodeSettings` must allow management.
+   An opt-out or missing dependency blocks preparation with `Not Assessed` and exit code 1;
+   the command does not override it. A local setting cannot override enterprise policy.
+3. **Audit the source**, from the kit directory:
+
+   ```powershell
+   python .\src\configure-vscode.py --copilot-chat-migration --dry-run
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --copilot-chat-migration --dry-run
+   ```
+
+   Use `--config <path>` for a personal config. Only existing directories selected by
+   `user.vscode.profiles` and `advanced.vscode.profileDirectories` are considered. If
+   none exist, open the intended VS Code build/profile and audit again. Back up its
+   `settings.json` before applying if you need its original comments: as with normal
+   setup, the additive merge preserves unrelated values but rewrites JSONC as plain JSON.
+4. **Prepare the source**, only after approving the audit and upload policy:
+
+   ```powershell
+   python .\src\configure-vscode.py --copilot-chat-migration
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --copilot-chat-migration
+   ```
+
+   The command rereads and validates the written preferences. Exit code 0 means only
+   that local preparation (or the dry-run plan) succeeded, not that history transferred.
+5. **Verify the source upload in VS Code.** Sign in to Copilot with the intended supported
+   GitHub.com account. In the Chat view's Copilot status bar, check session sync status.
+   Wait for **N sessions synced**, inspect the linked sessions on GitHub.com, and confirm
+   the required source sessions are present. **Syncing N sessions**, **Sync error**,
+   **Not enabled**, or **Disabled by policy** is not completion. Do not bypass policy.
+6. **Prepare and verify the target.** Repeat the audit and preparation commands on the
+   destination, use the same Copilot account, and open the repository's actual checkout.
+   Query history for known source sessions and inspect their conversation content.
+   Check every required repository/session before considering the move complete. Cloud
+   searchability is not proof that every legacy chat or local resume artifact was restored.
+7. **Keep a rollback path.** Retain source history until target verification succeeds.
+   If a required chat is missing or unsupported, leave migration **Not Assessed** and
+   use the fallback below where available. To stop future uploads, set
+   `chat.sessionSync.enabled` to `false` in the config and VS Code; this does not delete
+   data already uploaded to GitHub.
+
+**Local/legacy fallback:** on a build and session that offer the native commands, open
+each required source chat and run **Chat: Export Chat...**, preserving its JSON export
+privately outside the repository. Transfer that file securely, then run
+**Chat: Import Chat...** on the target and inspect the imported conversation. Do not
+convert Markdown transcripts, Copilot CLI event files, or SQLite data into guessed import
+formats. If those commands are unavailable for the session, retain the source and stop;
+the kit does not fabricate a successful import or copy `state.vscdb`, `workspaceStorage`,
+or credential stores. Imports do not relocate referenced files or guarantee cross-harness
+resumption. Follow organizational data-handling restrictions for offline exports too.
+
+See the official [session history and sync-status guide](https://code.visualstudio.com/docs/agents/run/sessions/session-history),
+[GitHub session-data documentation](https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data),
+and [VS Code's native JSON export/import commands](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/actions/chatImportExport.ts).
 
 ## Repository hygiene
 
