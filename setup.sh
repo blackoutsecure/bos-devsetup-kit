@@ -71,6 +71,7 @@ if [[ $uninstall -eq 1 ]]; then
 	if devsetup_enabled user.install.prettier; then "${BASH:-bash}" "$scripts/install-prettier.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --uninstall $audit_flag; fi
+	if devsetup_enabled user.install.rust; then "${BASH:-bash}" "$scripts/install-rust.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.shellcheck; then "${BASH:-bash}" "$scripts/install-shellcheck.sh" --uninstall $audit_flag; fi
 	if devsetup_enabled user.install.ripgrep; then "${BASH:-bash}" "$scripts/install-ripgrep.sh" --uninstall $audit_flag; fi
@@ -95,6 +96,7 @@ if [[ $check_upgrades_only -eq 1 ]]; then
 	if devsetup_enabled user.install.prettier; then "${BASH:-bash}" "$scripts/install-prettier.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.python; then "${BASH:-bash}" "$scripts/install-python.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.php; then "${BASH:-bash}" "$scripts/install-php.sh" --audit --check-upgrades; fi
+	if devsetup_enabled user.install.rust; then "${BASH:-bash}" "$scripts/install-rust.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.powershell; then "${BASH:-bash}" "$scripts/install-powershell.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.shellcheck; then "${BASH:-bash}" "$scripts/install-shellcheck.sh" --audit --check-upgrades; fi
 	if devsetup_enabled user.install.ripgrep; then "${BASH:-bash}" "$scripts/install-ripgrep.sh" --audit --check-upgrades; fi
@@ -161,6 +163,12 @@ if devsetup_enabled user.install.python; then
 	fi
 else
 	devsetup_status skip Python "user.install.python is false"
+fi
+
+if devsetup_enabled user.install.rust; then
+	"${BASH:-bash}" "$scripts/install-rust.sh" $audit_flag $upgrade_flag
+else
+	devsetup_status skip Rust "user.install.rust is false"
 fi
 
 php_command=""

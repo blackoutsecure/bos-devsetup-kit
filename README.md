@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
+Installs Git, Node.js, Prettier, Python, Rust, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
 per-user, plus BusyBox on Windows, then applies VS Code settings and portable Copilot MCP defaults.
 VS Code profile settings can follow you through Settings Sync; Copilot's separate global MCP
 config is not covered by Settings Sync. Every step auto-detects what is already present and skips
@@ -23,7 +23,7 @@ Platform requirements:
 
 - **Windows:** PowerShell 5.1+. WinGet for PHP, ShellCheck, ripgrep, BusyBox, and Packer.
   Official portable ZIP fallbacks for Node.js and PowerShell; `uv` fallback for Python.
-  Prettier uses npm.
+  Rust uses user-scoped WinGet or the official verified rustup installer. Prettier uses npm.
 - **macOS:** Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell,
   ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm.
 - **Ubuntu / Debian:** Homebrew is installed under `$HOME` automatically if missing;
@@ -38,7 +38,8 @@ No administrator or root access is required by the primary setup flow. WSL is ne
   official portable ZIPs if WinGet is missing, fails, or does not produce an executable.
   ZIPs are SHA256-verified against official release metadata, staged, then installed under
   `%LOCALAPPDATA%\Programs`; existing destination content is never overwritten.
-  Python can fall back to user-local `uv`. Other unsupported packages report failure rather
+  Python can fall back to user-local `uv`; Rust can use its official SHA256-verified
+  user-local installer. Other unsupported packages report failure rather
   than retrying with machine scope or requesting elevation. WinGet uninstall is user-scoped
   too; portable ZIP fallbacks are deliberately left in place, not recursively removed.
 - macOS and Linux bootstrap Homebrew from its source archive into `$HOME/.linuxbrew`. Homebrew
@@ -352,7 +353,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                                                                     |
 | `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                                                            |
 | `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                                                            |
-| `user.mcp.copilotConfig.manage`              | `true`                                                                                                                                                                               | Also add portable servers to `$COPILOT_HOME/mcp-config.json` (or `~/.copilot/mcp-config.json`).                                                                                    |
+| `user.mcp.copilotConfig.manage`             | `true`                                                                                                                                                                               | Also add portable servers to `$COPILOT_HOME/mcp-config.json` (or `~/.copilot/mcp-config.json`).                                                                                   |
 | `user.mcp.block`                            | `[]`                                                                                                                                                                                 | Server IDs that should not be configured. Reported as `[warn]` if present.                                                                                                        |
 | `user.mcp.removeBlocked`                    | `false`                                                                                                                                                                              | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                                                                     |
 | `user.devcontainers.dockerAccess`           | `"outside-of-docker"`                                                                                                                                                                | `outside-of-docker`, `in-docker`, or `none`.                                                                                                                                      |
@@ -431,11 +432,53 @@ For VS Code settings, later wins:
 
 Command-line parameters override the config for a single run.
 
+The kit does not enable timed automatic acceptance of Copilot edits. Existing
+user choices are preserved; unattended permissions remain opt-in.
+
+### Rust toolchain and editor
+
+`user.install.rust` (default `true`) enables `src/scripts/install-rust.ps1` or
+`src/scripts/install-rust.sh` in setup, audit, and upgrade-check modes.
+Windows installs rustup through user-scoped WinGet (`advanced.rust.wingetPackageId`),
+falling back to the official SHA256-verified rustup installer when user-scoped WinGet
+is unavailable (`advanced.rust.bootstrapBaseUrl`). The fallback runs noninteractively
+without installing Visual Studio or changing the default host;
+macOS/Linux use Homebrew (`advanced.rust.homebrewFormula`, including its keg-only path).
+Existing rustup installations and `CARGO_HOME` are detected even when Cargo is not on PATH.
+Setup resolves rustup's configured default host and provisions that host's **stable**,
+`rustfmt`, `clippy`, and `rust-src`, checks `rustc` and Cargo,
+and preserves an existing default toolchain and repository toolchain pins.
+Missing components are repaired; existing toolchains are not automatically upgraded.
+Upgrade-check mode includes available `rustup check` updates in the setup summary;
+update deliberately with `rustup update` when ready.
+
+A normal run compiles, links, and executes a tiny temporary native program, then removes it.
+Audit never compiles or changes PATH; it reports planned PATH/profile changes and
+explicitly reports build readiness as unverified.
+A successful version check alone is not proof that Windows linking works.
+Failed probes report `[warn]`: MSVC requires C++ Build Tools; GNU requires compatible
+MinGW linker tools. Linux needs a C linker and development libraries; macOS needs Xcode
+Command Line Tools. Setup never elevates, installs these system prerequisites, changes the
+host target, or writes a global linker workaround. Shared Rust installations and Cargo
+packages are intentionally preserved by uninstall on both platforms.
+Open a new terminal/login shell manually to pick up PATH changes.
+
+The editor baseline installs official `rust-lang.rust-analyzer`, uses Clippy for checks,
+and scopes rust-analyzer formatting/format-on-save to `[rust]`. Existing additional
+Rust language settings are preserved. No duplicate debugger, deprecated Rust extension,
+or unverified Rust MCP server is added. TOML support is optional rather than another default.
+
+These user settings and extensions follow the existing **GitHub Settings Sync** handoff:
+in VS Code, turn on Settings Sync, sign in with GitHub, and include **Settings** and
+**Extensions**. Confirm the Rust entries with **Settings Sync: Show Synced Data**.
+Local configuration or an accepted `--sync on` request is not proof of completed cloud
+upload. Toolchains, Cargo caches, native SDKs, and machine PATH do **not** sync.
+
 ### Extensions
 
 `user.vscode.extensions.install` is a lean, broadly useful baseline rather than an exhaustive list:
 formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`, `shellcheck`),
-Python (`python`, `pylance`, `debugpy`, `vscode-python-envs`),
+Python (`python`, `pylance`, `debugpy`, `vscode-python-envs`), Rust (`rust-lang.rust-analyzer`),
 GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
 containers and remote (`remote-containers`, `vscode-containers`), plus `powershell`, `yaml`,
 `hcl`, `makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
@@ -446,7 +489,7 @@ environment management in the kit's audited baseline. ShellCheck provides editor
 alongside the CLI installed by the kit. Prettier remains the general default. For Python and
 PowerShell, select `charliermarsh.ruff` and `ms-vscode.powershell`, respectively, in workspace
 language-specific formatter settings when needed; Prettier does not support those languages.
-The kit does not add language override blocks that would replace existing per-language choices.
+Managed language override blocks preserve unrelated existing per-language choices.
 
 The workspace-facing baseline also appears in `user.devcontainers.extensions`, including HCL,
 Makefile Tools, Playwright, PowerShell, Python Environments, and ShellCheck. Container Tools and
@@ -517,8 +560,8 @@ Linux the kit also checks `advanced.vscode.extensionCliFallbackPaths` when the C
 
 `user.mcp.servers` is merged into each profile's `mcp.json` and into the Copilot user-level
 `mcp-config.json`. The latter uses the directory in `COPILOT_HOME`, or `~/.copilot` when that
-variable is unset. The shipped default is four servers that need **no authentication and no local
-runtime beyond `npx`/`uvx`**:
+variable is unset. The four shipped defaults use remote HTTP services or local `npx`/`uvx`
+runtimes. GitHub requires authentication; the other defaults do not:
 
 | Server                               | Transport     | Why it is a default                                       |
 | ------------------------------------ | ------------- | --------------------------------------------------------- |
@@ -560,6 +603,45 @@ portable config locally for the Copilot harness and Copilot CLI; it does not cre
 push user data, or store credentials. If you want this user-level config on other machines, use a
 private repository or another secure sync method that you manage, and keep secret values in
 environment variables rather than the tracked file.
+
+#### GitHub MCP and your GitHub-synced profile
+
+The [official GitHub MCP server](https://github.com/github/github-mcp-server) is already included
+in the shipped setup configuration. Its VS Code user-profile definition is:
+
+```json
+{
+    "servers": {
+        "io.github.github/github-mcp-server": {
+            "type": "http",
+            "url": "https://api.githubcopilot.com/mcp/"
+        }
+    }
+}
+```
+
+This hosted server needs no Docker container or local GitHub MCP binary. Complete the host's
+GitHub OAuth sign-in when prompted; no token belongs in the setup configuration. Authentication
+and server trust are local to each host and might need approval again on another device.
+
+To keep this setup in your GitHub-backed VS Code cloud profile:
+
+1. Sign in to **Settings Sync** with GitHub. Run **Settings Sync: Configure** and select
+   **MCP Servers**.
+2. Run the kit's audit, then apply setup using the [quick start](#quick-start). It adds missing
+   server definitions to the configured Stable and Insiders user profiles without replacing
+   existing servers. It also maintains Copilot's separate local config.
+3. Open **Settings Sync: Show Synced Data** and confirm the MCP data contains
+   `io.github.github/github-mcp-server` with the endpoint above. An accepted `--sync on` request
+   alone is not proof that the cloud upload finished.
+4. On another device, let Settings Sync restore the user-profile configuration, complete any
+   authentication or trust prompts, and request the GitHub MCP `get_me` tool to verify access.
+
+Only the user-profile `mcp.json` participates in
+[MCP Settings Sync](https://code.visualstudio.com/docs/agents/run/manage-mcp-servers#synchronize-mcp-configuration-across-devices).
+Copilot's `mcp-config.json` remains local; run the kit on each machine that needs the Copilot
+harness or CLI configuration. This does not change your public GitHub profile or publish
+credentials.
 
 ### Settings deliberately excluded
 
