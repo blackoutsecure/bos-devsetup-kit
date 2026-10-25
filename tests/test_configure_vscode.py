@@ -156,6 +156,42 @@ class DefaultSettingsTests(unittest.TestCase):
         extensions = self.config["user"]["vscode"]["extensions"]["install"]
         self.assertIn("ms-playwright.playwright", extensions)
 
+    def test_python_environments_and_shellcheck_are_explicit_defaults(self):
+        for key in ("vscode", "devcontainers"):
+            with self.subTest(target=key):
+                extensions = self.config["user"][key]["extensions"]
+                if key == "vscode":
+                    extensions = extensions["install"]
+                self.assertIn("ms-python.vscode-python-envs", extensions)
+                self.assertIn("timonwong.shellcheck", extensions)
+
+    def test_workspace_extensions_follow_the_developer_into_containers(self):
+        host = {
+            extension.lower()
+            for extension in self.config["user"]["vscode"]["extensions"]["install"]
+        }
+        container = {
+            extension.lower()
+            for extension in self.config["user"]["devcontainers"]["extensions"]
+        }
+        host_only = {
+            "ms-azuretools.vscode-containers",
+            "ms-vscode-remote.remote-containers",
+        }
+        self.assertEqual(host - host_only - container, set())
+
+    def test_extension_defaults_are_unique_and_do_not_install_blocked_tools(self):
+        policy = self.config["user"]["vscode"]["extensions"]
+        blocked = {extension.lower() for extension in policy["block"]}
+        for target, extensions in (
+            ("host", policy["install"]),
+            ("container", self.config["user"]["devcontainers"]["extensions"]),
+        ):
+            with self.subTest(target=target):
+                normalized = {extension.lower() for extension in extensions}
+                self.assertEqual(len(extensions), len(normalized))
+                self.assertFalse(normalized & blocked)
+
     def test_baseline_keeps_terminals_visible_and_voice_disabled(self):
         settings = self.settings()
         self.assertEqual(settings["chat.requestQueuing.defaultAction"], "queue")
@@ -199,6 +235,102 @@ class DefaultSettingsTests(unittest.TestCase):
         self.assertTrue(self.config["user"]["vscode"]["settingsSync"]["syncAfterSetup"])
         self.config["user"]["vscode"]["settings"]["chat.sessionSync.enabled"] = False
         self.assertFalse(self.settings()["chat.sessionSync.enabled"])
+
+
+class ExtensionManagementTests(unittest.TestCase):
+    def setUp(self):
+        self.config = configure_vscode.load_json(configure_vscode.DEFAULT_CONFIG)
+        self.wanted = set(self.config["user"]["vscode"]["extensions"]["install"])
+        self.additions = {"ms-python.vscode-python-envs", "timonwong.shellcheck"}
+        self.optional = "example.optional-tool"
+        self.blocked = "ms-azuretools.vscode-docker"
+        self.installed = (self.wanted - self.additions) | {self.optional, self.blocked}
+
+    def test_plan_adds_recommendations_and_only_removes_explicitly_blocked_tools(self):
+        missing, blocked = configure_vscode.extension_plan(self.config, self.installed)
+        self.assertCountEqual(missing, self.additions)
+        self.assertEqual(blocked, [self.blocked])
+
+    def test_extension_audit_never_changes_installed_extensions(self):
+        before = set(self.installed)
+        with (
+            patch("configure_vscode.code_cli_targets", return_value=[("test", "code", "code")]),
+            patch("configure_vscode.installed_extensions", return_value=self.installed),
+            patch("configure_vscode.run_cli") as run,
+            patch("configure_vscode.status") as report,
+        ):
+            configure_vscode.manage_extensions(self.config, dry_run=True)
+            run.assert_not_called()
+            details = [call.args[2] for call in report.call_args_list]
+            for extension in self.additions:
+                self.assertIn(f"would install {extension} (test)", details)
+            self.assertIn(f"would uninstall blocked {self.blocked} (test)", details)
+        self.assertEqual(self.installed, before)
+
+    def test_apply_preserves_optional_tools_and_second_run_makes_no_changes(self):
+        def run_cli(cli, operation, extension, *args, **kwargs):
+            self.assertEqual(cli, "code")
+            if operation == "--install-extension":
+                self.installed.add(extension)
+            elif operation == "--uninstall-extension":
+                self.installed.remove(extension)
+            else:
+                self.fail(f"Unexpected extension operation: {operation}")
+            return 0, ""
+
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.object(sys, "argv", [str(SOURCE), "--skip-settings-sync"]),
+            patch(
+                "configure_vscode.profile_targets",
+                return_value=[("test", Path(temp_dir) / "User")],
+            ),
+            patch(
+                "configure_vscode.copilot_mcp_config_path",
+                return_value=Path(temp_dir) / "copilot-mcp.json",
+            ),
+            patch("configure_vscode.code_cli_targets", return_value=[("test", "code", "code")]),
+            patch("configure_vscode.installed_extensions", side_effect=lambda *args: set(self.installed)),
+            patch("configure_vscode.run_cli", side_effect=run_cli) as run,
+            patch("configure_vscode.status") as report,
+        ):
+            user_dir = Path(temp_dir) / "User"
+            user_dir.mkdir()
+            settings_path = user_dir / "settings.json"
+            custom_settings = {"editor.fontSize": 17, "[python]": {"editor.tabSize": 2}}
+            settings_path.write_text(json.dumps(custom_settings), encoding="utf-8")
+
+            def snapshot():
+                return {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in Path(temp_dir).rglob("*")
+                    if path.is_file()
+                }
+
+            before = snapshot()
+            with patch.object(
+                sys, "argv", [str(SOURCE), "--dry-run", "--skip-settings-sync"]
+            ):
+                self.assertEqual(configure_vscode.main(), 0)
+            run.assert_not_called()
+            self.assertEqual(snapshot(), before)
+
+            self.assertEqual(configure_vscode.main(), 0)
+            self.assertEqual(run.call_count, len(self.additions) + 1)
+            self.assertEqual(self.installed, self.wanted | {self.optional})
+            saved = configure_vscode.load_json(settings_path)
+            self.assertEqual(saved["editor.fontSize"], custom_settings["editor.fontSize"])
+            self.assertEqual(saved["[python]"], custom_settings["[python]"])
+            self.assertTrue(self.additions <= set(saved["dev.containers.defaultExtensions"]))
+            before = snapshot()
+            run.reset_mock()
+            report.reset_mock()
+            self.assertEqual(configure_vscode.main(), 0)
+            run.assert_not_called()
+            self.assertEqual(snapshot(), before)
+            self.assertEqual(
+                {call.args[0] for call in report.call_args_list}, {"found", "skip"}
+            )
 
 
 class SettingsSyncTests(unittest.TestCase):

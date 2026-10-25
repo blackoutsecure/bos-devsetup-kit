@@ -434,24 +434,64 @@ Command-line parameters override the config for a single run.
 ### Extensions
 
 `user.vscode.extensions.install` is a lean, broadly useful baseline rather than an exhaustive list:
-formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`), Python
-(`python`, `pylance`, `debugpy`), GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
+formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`, `shellcheck`),
+Python (`python`, `pylance`, `debugpy`, `vscode-python-envs`),
+GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
 containers and remote (`remote-containers`, `vscode-containers`), plus `powershell`, `yaml`,
-`makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
+`hcl`, `makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
 (`ms-playwright.playwright`) for running and debugging browser tests from VS Code.
+
+Python Environments is explicit even though the Python extension also includes it; this keeps
+environment management in the kit's audited baseline. ShellCheck provides editor diagnostics
+alongside the CLI installed by the kit. Prettier remains the general default. For Python and
+PowerShell, select `charliermarsh.ruff` and `ms-vscode.powershell`, respectively, in workspace
+language-specific formatter settings when needed; Prettier does not support those languages.
+The kit does not add language override blocks that would replace existing per-language choices.
+
+The workspace-facing baseline also appears in `user.devcontainers.extensions`, including HCL,
+Makefile Tools, Playwright, PowerShell, Python Environments, and ShellCheck. Container Tools and
+Dev Containers themselves stay on the host. Extensions do not provision a project's runtimes,
+test dependencies, or browser binaries inside a container.
 
 The extension is installed into each configured VS Code profile, but Playwright itself remains a
 per-project dependency. Use the extension's **Test: Install Playwright** command or
 `npm init playwright@latest` in a project to create its test setup and install the selected browsers;
 the setup kit does not install browser binaries globally.
 
-Other stack-specific extensions are intentionally left out — Azure, Go, Swift, docs-authoring, and
-similar belong to individual workflows, not a shared baseline. Playwright is the exception because
-its extension adds editor support while leaving test dependencies and browser installs
-project-scoped. Add whatever else you need to the list.
+#### Stack-specific recommendations
 
-`user.vscode.extensions.block` covers extensions that are **deprecated or superseded** by something
-in the install list, so having both causes duplicate diagnostics or fighting formatters:
+Keep these opt-in rather than installing every language, cloud explorer, or extension pack on
+every machine. Add the required IDs to `user.vscode.extensions.install` and, when needed in a
+container, `user.devcontainers.extensions`.
+
+| Workload | Recommended extension IDs | Guidance |
+| -------- | ------------------------- | -------- |
+| Rust | `rust-lang.rust-analyzer` | Use with a project-managed Rust toolchain. Prefer rustfmt through rust-analyzer over `jinxdash.prettier-rust`; set `editor.defaultFormatter` to `rust-lang.rust-analyzer` in a workspace `[rust]` override. |
+| Swift | `swiftlang.swift-vscode` | Install only where a Swift SDK/toolchain is available; its LLDB DAP dependency supplies debugging support. |
+| Go | `golang.go` | Useful for Go repositories, not required for the setup kit itself. |
+| C/C++ and CMake | `ms-vscode.cpptools`, `ms-vscode.cmake-tools` | Prefer the needed tools over the full C++ pack and its themes. |
+| Astro | `astro-build.astro-vscode` | Add for Astro projects; Prettier alone is not the language service. |
+| Vitest | `vitest.explorer` | Add when the repository uses Vitest; it complements rather than replaces Playwright Test. |
+| Azure | Service-specific `ms-azuretools.*` extensions | Install only the services used by the project, rather than the entire Azure Tools pack. |
+| Databases | `ms-mssql.mssql` or `mtxr.sqltools` with the appropriate driver | Choose according to the database; two explorers are not a universal requirement. |
+| Microsoft Learn authoring | `docsmsft.docs-authoring-pack` | Intended for Learn content; ordinary repository Markdown uses the baseline tools. |
+
+GitLens and Git History are optional additions to VS Code's built-in Git history, not baseline
+requirements. Keep `ms-python.mypy-type-checker` only when a project needs mypy: Ruff does linting,
+while Pylance and mypy do type analysis. Preview tools such as `typescriptteam.native-preview`
+belong in an experimental profile rather than the portable baseline. Optional does not mean
+blocked; the kit preserves installed tools that are not on its explicit block list.
+
+Publisher references: [Python Environments](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs),
+[ShellCheck](https://marketplace.visualstudio.com/items?itemName=timonwong.shellcheck), and
+[rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+
+#### Superseded-tool policy
+
+`user.vscode.extensions.block` is the kit's opinionated policy for tools that are deprecated,
+superseded, or overlap its chosen baseline. Not every blocked extension is unmaintained: a project
+that requires Black or Pylint should customize this policy rather than treating Ruff as an exact
+replacement for every rule.
 
 | Blocked                                                              | Superseded by                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------- |
@@ -466,8 +506,12 @@ Blocked extensions are removed by default because `uninstallBlocked` is `true`; 
 to report them without removing them. An extension listed in both `install` and `block` is a
 configuration error and fails the run.
 
-Extension management needs the VS Code CLI (`code`) on `PATH`. Profiles whose CLI is missing are
-reported as `[skip]` and everything else still runs.
+The [Docker publisher's migration guidance](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker)
+confirms that the old Docker wrapper pack can be removed while keeping Container Tools.
+
+Extension management needs the matching VS Code CLI (`code` or `code-insiders`). On macOS and
+Linux the kit also checks `advanced.vscode.extensionCliFallbackPaths` when the CLI is not on
+`PATH`. Profiles whose CLI is missing are reported as `[skip]` and everything else still runs.
 
 ### MCP servers
 
