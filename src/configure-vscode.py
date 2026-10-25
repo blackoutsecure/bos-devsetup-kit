@@ -218,7 +218,17 @@ def build_settings(
             )
         ] = [powershell_path]
 
-    # User overrides win over everything above.
+    auto_accept_delay = get(config, "user.vscode.copilot.autoAcceptDelay", 1)
+    if (
+        isinstance(auto_accept_delay, bool)
+        or not isinstance(auto_accept_delay, (int, float))
+        or not 0 <= auto_accept_delay <= 100
+    ):
+        raise SystemExit(
+            "user.vscode.copilot.autoAcceptDelay must be a number from 0 to 100 "
+            "seconds; 0 disables automatic Keep."
+        )
+    settings["chat.editing.autoAcceptDelay"] = auto_accept_delay
     if get(config, "user.vscode.copilot.autopilot", False):
         settings["chat.permissions.default"] = "autopilot"
         settings["chat.defaultConfiguration"] = {
@@ -228,6 +238,7 @@ def build_settings(
     if get(config, "user.vscode.copilot.fusion", False):
         settings["chat.copilot.ensemble.enabled"] = True
         settings["chat.copilot.hydraFusion.enabled"] = "v2"
+    # User overrides win over everything above.
     settings.update(get(config, "user.vscode.settings", {}))
     return settings
 

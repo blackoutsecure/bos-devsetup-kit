@@ -96,6 +96,7 @@ class SetupEntrypointTests(unittest.TestCase):
             first = run()
             self.assertIn("Setup complete", first)
             settings = json.loads((profile / "settings.json").read_text())
+            self.assertEqual(settings["chat.editing.autoAcceptDelay"], 1)
             self.assertEqual(settings["chat.requestQueuing.defaultAction"], "queue")
             self.assertFalse(settings["dictation.enabled"])
             self.assertEqual(settings["chat.tools.terminal.outputLocation"], "terminal")

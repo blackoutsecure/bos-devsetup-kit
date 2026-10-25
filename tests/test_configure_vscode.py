@@ -27,7 +27,7 @@ class RustSettingsTests(unittest.TestCase):
             "rust-analyzer.check.command": settings["rust-analyzer.check.command"],
         }
         self.assertTrue(config["user"]["install"]["rust"])
-        self.assertNotIn("chat.editing.autoAcceptDelay", settings)
+        self.assertEqual(settings["chat.editing.autoAcceptDelay"], 1)
         self.assertIn("rust-lang.rust-analyzer", config["user"]["vscode"]["extensions"]["install"])
         self.assertEqual(rust_settings["rust-analyzer.check.command"], "clippy")
         self.assertEqual(rust_settings["[rust]"]["editor.defaultFormatter"], "rust-lang.rust-analyzer")
@@ -355,6 +355,118 @@ class DefaultSettingsTests(unittest.TestCase):
         self.assertTrue(self.config["user"]["vscode"]["settingsSync"]["syncAfterSetup"])
         self.config["user"]["vscode"]["settings"]["chat.sessionSync.enabled"] = False
         self.assertFalse(self.settings()["chat.sessionSync.enabled"])
+
+
+class CopilotAutoKeepTests(unittest.TestCase):
+    def setUp(self):
+        self.config = configure_vscode.load_json(configure_vscode.DEFAULT_CONFIG)
+
+    def settings(self):
+        return configure_vscode.build_settings(self.config, None, None, None, None)
+
+    def test_shipped_default_is_one_second_and_syncable_without_tool_approvals(self):
+        self.assertEqual(self.config["user"]["vscode"]["copilot"]["autoAcceptDelay"], 1)
+        settings = self.settings()
+        self.assertEqual(settings["chat.editing.autoAcceptDelay"], 1)
+        self.assertNotIn(
+            "chat.editing.autoAcceptDelay", settings["settingsSync.ignoredSettings"]
+        )
+        self.assertTrue(self.config["user"]["vscode"]["settingsSync"]["syncAfterSetup"])
+        self.assertEqual(
+            self.config["user"]["vscode"]["settingsSync"]["requiredProvider"], "github"
+        )
+        self.assertNotIn("chat.permissions.default", settings)
+        self.assertNotIn("chat.defaultConfiguration", settings)
+        self.assertNotIn("chat.copilot.ensemble.enabled", settings)
+
+    def test_missing_null_or_blank_delay_defaults_to_one_second(self):
+        for copilot in ({}, {"autoAcceptDelay": None}, {"autoAcceptDelay": ""}):
+            with self.subTest(copilot=copilot):
+                self.config["user"]["vscode"]["copilot"] = copilot
+                self.assertEqual(self.settings()["chat.editing.autoAcceptDelay"], 1)
+        settings = configure_vscode.build_settings(
+            {"user": {"install": {"devcontainerDefaults": False}}},
+            None, None, None, None,
+        )
+        self.assertEqual(settings["chat.editing.autoAcceptDelay"], 1)
+
+    def test_configured_delay_includes_zero_for_manual_review(self):
+        for delay in (0, 1, 2.5, 100):
+            with self.subTest(delay=delay):
+                self.config["user"]["vscode"]["copilot"]["autoAcceptDelay"] = delay
+                self.assertEqual(self.settings()["chat.editing.autoAcceptDelay"], delay)
+
+    def test_explicit_user_settings_override_the_preset(self):
+        self.config["user"]["vscode"]["copilot"]["autoAcceptDelay"] = 5
+        for delay in (0, 3):
+            with self.subTest(delay=delay):
+                self.config["user"]["vscode"]["settings"]["chat.editing.autoAcceptDelay"] = delay
+                self.assertEqual(self.settings()["chat.editing.autoAcceptDelay"], delay)
+
+    def test_invalid_delays_fail_before_writing_profiles(self):
+        for delay in (-1, 101, True, False, "1", [], {}, float("inf"), float("nan")):
+            with self.subTest(delay=delay):
+                self.config["user"]["vscode"]["copilot"]["autoAcceptDelay"] = delay
+                with self.assertRaisesRegex(SystemExit, "autoAcceptDelay.*0.*100"):
+                    self.settings()
+
+    def test_audit_apply_validation_and_second_run_preserve_each_profile(self):
+        settings = {"chat.editing.autoAcceptDelay": self.settings()["chat.editing.autoAcceptDelay"]}
+        original = {
+            "editor.fontSize": 17,
+            "chat.editing.autoAcceptDelay": 10,
+            "chat.permissions.default": "default",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            targets = [
+                (profile, Path(temp_dir) / profile)
+                for profile in ("stable", "insiders")
+            ]
+            for _, user_dir in targets:
+                configure_vscode.write_json(user_dir / "settings.json", original)
+
+            def snapshot():
+                return {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for _, user_dir in targets
+                    for path in [user_dir / "settings.json"]
+                }
+
+            with (
+                patch("configure_vscode.profile_targets", return_value=targets),
+                patch("configure_vscode.status") as report,
+            ):
+                before = snapshot()
+                for _, user_dir in targets:
+                    self.assertTrue(configure_vscode.apply(user_dir, settings, None, True))
+                self.assertEqual(snapshot(), before)
+
+                for _, user_dir in targets:
+                    self.assertTrue(configure_vscode.apply(user_dir, settings, None, False))
+                    self.assertEqual(
+                        configure_vscode.load_json(user_dir / "settings.json"),
+                        {**original, "chat.editing.autoAcceptDelay": 1},
+                    )
+                configure_vscode.validate_profiles(self.config, settings, None)
+                before = snapshot()
+                report.reset_mock()
+                for _, user_dir in targets:
+                    self.assertFalse(configure_vscode.apply(user_dir, settings, None, False))
+                self.assertEqual(snapshot(), before)
+                self.assertEqual(
+                    {call.args[0] for call in report.call_args_list}, {"found"}
+                )
+
+    def test_validation_rejects_a_profile_with_the_wrong_delay(self):
+        settings = {"chat.editing.autoAcceptDelay": self.settings()["chat.editing.autoAcceptDelay"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            user_dir = Path(temp_dir)
+            configure_vscode.write_json(
+                user_dir / "settings.json", {"chat.editing.autoAcceptDelay": 10}
+            )
+            with patch("configure_vscode.profile_targets", return_value=[("test", user_dir)]):
+                with self.assertRaisesRegex(SystemExit, "validation failed.*autoAcceptDelay"):
+                    configure_vscode.validate_profiles(self.config, settings, None)
 
 
 class ExtensionManagementTests(unittest.TestCase):

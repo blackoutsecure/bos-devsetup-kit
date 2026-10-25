@@ -12,6 +12,7 @@ it, reporting each decision in the terminal. Nothing requires WSL, sudo, or a GU
 
 - **Audit first.** `setup.ps1 -Audit` / `setup.sh --audit` reports what would change and writes nothing.
 - **One config.** Every tunable lives in [`config/dev-setup.config.json`](config/dev-setup.config.json).
+- **Copilot auto-keep.** Pending edits are automatically kept after one second, with a configurable delay or manual-review opt-out.
 - **Idempotent.** Re-running is safe; values are compared before they are written.
 - **Color-coded.** Each line is tagged `[found]` (green), `[install]` (cyan), `[warn]` (yellow), or
   `[skip]` (grey) — identically across PowerShell, bash, and the Python VS Code applier. Colors are
@@ -345,6 +346,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.vscode.profiles`                      | `["stable","insiders"]`                                                                                                                                                              | Which VS Code profiles receive settings and extensions.                                                                                                                           |
 | `user.vscode.settingsSync.syncAfterSetup`   | `true`                                                                                                                                                                               | Request VS Code Settings Sync after successful validation when GitHub sync is already enabled. This may open VS Code.                                                             |
 | `user.vscode.settingsSync.requiredProvider` | `"github"`                                                                                                                                                                           | Only request sync when the signed-in Settings Sync account provider matches this value.                                                                                           |
+| `user.vscode.copilot.autoAcceptDelay`       | `1`                                                                                                                                                                                  | Automatically Keep pending Copilot edits after this many seconds (`0` disables; supported range `0`-`100`). Does not grant tool approvals.                                        |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                                                                         |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                                                                 |
 | `user.vscode.extensions.install`            | 19 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                                                                        |
@@ -428,12 +430,15 @@ For VS Code settings, later wins:
 2. dev container keys, when `user.install.devcontainerDefaults` is `true`
 3. managed Python global package install guidance
 4. resolved `git.path` / `python.defaultInterpreterPath`
-5. `user.vscode.settings`
+5. Copilot presets, including `user.vscode.copilot.autoAcceptDelay`
+6. `user.vscode.settings`
 
 Command-line parameters override the config for a single run.
 
-The kit does not enable timed automatic acceptance of Copilot edits. Existing
-user choices are preserved; unattended permissions remain opt-in.
+The kit defaults Copilot edit auto-keep to one second. Set
+`user.vscode.copilot.autoAcceptDelay` to `0` to require manual Keep, or override
+`chat.editing.autoAcceptDelay` under `user.vscode.settings`. Applying the kit updates
+an existing profile's delay to the configured value; unattended permissions remain opt-in.
 
 ### Rust toolchain and editor
 
@@ -843,6 +848,28 @@ per configured profile, all covered by Settings Sync:
 - `prompts/terminal-execution.instructions.md` — personal terminal and process guidance.
   Existing user-authored instructions are preserved and reported for manual comparison.
   Disable installation with `user.vscode.terminalInstructions.manage: false`.
+
+#### Copilot edit auto-keep
+
+The auto-keep capability maps `user.vscode.copilot.autoAcceptDelay` to VS Code's
+`chat.editing.autoAcceptDelay` in every configured Stable/Insiders profile. Its default
+is **1 second**, including when the config key is missing, `null`, or blank.
+The delay must be a number from `0` to `100` seconds; invalid values fail before
+profile writes. Set it to `0` to disable auto-keep, not to accept immediately.
+Explicit `user.vscode.settings` overrides still win, including a delay of `0`.
+
+For sessions with pending-edit review controls, VS Code automatically selects **Keep**
+after the delay. Hovering over the review controls stops the countdown. Harnesses that
+save edits directly without a pending-review state do not need this control.
+Auto-keep does not approve commands/tools, enable Autopilot or Fusion, stage or commit
+files, or change workspace trust.
+
+This user setting is eligible for VS Code Settings Sync and is not excluded by the kit.
+With GitHub-backed Settings Sync already enabled and **Settings** selected, the existing
+post-validation sync handoff includes it. Confirm the value with
+**Settings Sync: Show Synced Data**; a local write or accepted CLI request alone is not
+proof of cloud upload. It is an editor preference, not a Copilot CLI or GitHub.com setting.
+See [Review AI-generated edits](https://code.visualstudio.com/docs/agents/run/review-code-edits#_auto-accept-edits).
 
 #### Copilot and terminal defaults
 

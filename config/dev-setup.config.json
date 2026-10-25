@@ -43,6 +43,7 @@
                 "requiredProvider": "github"
             },
             "copilot": {
+                "autoAcceptDelay": 1,
                 "autopilot": false,
                 "fusion": false
             },
