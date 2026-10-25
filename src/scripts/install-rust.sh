@@ -39,6 +39,7 @@ fi
 if [[ -z "$rustup" ]]; then
 	if [[ $audit -eq 1 ]]; then
 		devsetup_status install Rust "would install $formula via Homebrew and stable with rustfmt, clippy, rust-src"
+		devsetup_status install "Rust PATH" "would add Rust tools to the login shell profile after installation"
 		devsetup_status skip "Rust build" "linker readiness is unverified; audit does not compile or run code"
 		exit 0
 	fi
@@ -48,51 +49,77 @@ if [[ -z "$rustup" ]]; then
 	devsetup_install_via_homebrew rustup "$formula" rustup "Install rustup from https://rustup.rs/." 0
 	rustup="$(command -v rustup)"
 fi
+rustup_dir="$(dirname "$rustup")"
+profile="$HOME/.profile"
+if [[ "$(uname -s)" == "Darwin" ]]; then profile="$HOME/.zprofile"; fi
+printf -v path_line "export PATH=%q:%q:\"\$PATH\"" "$rustup_dir" "$cargo_bin"
+needs_path=1
+if [[ -f "$profile" ]] && grep -Fqx "$path_line" "$profile"; then needs_path=0; fi
+if [[ $audit -eq 1 && $needs_path -eq 1 ]]; then
+	devsetup_status install "Rust PATH" "would add Rust tools to $profile (new login shells)"
+fi
+host_info="$(RUSTUP_AUTO_INSTALL=0 "$rustup" show)"
+default_host="$(printf '%s\n' "$host_info" | sed -n 's/^Default host: //p')"
+if [[ -z "$default_host" || "$default_host" == *[[:space:]]* ]]; then
+	devsetup_status warn Rust "could not resolve rustup's default host"
+	exit 1
+fi
+stable_toolchain="stable-$default_host"
 toolchains="$("$rustup" toolchain list)"
-if ! printf '%s\n' "$toolchains" | grep -Eq '^stable(-|[[:space:]]|$)'; then
+if ! printf '%s\n' "$toolchains" | awk -v expected="$stable_toolchain" '$1 == expected { found = 1 } END { exit !found }'; then
 	if [[ $audit -eq 1 ]]; then
 		devsetup_status install "Rust stable" "would install stable with rustfmt, clippy, rust-src; existing defaults remain unchanged"
 		devsetup_status skip "Rust build" "linker readiness is unverified; audit does not compile or run code"
 		exit 0
 	fi
 	devsetup_status install "Rust stable" "installing stable with minimal profile"
-	"$rustup" toolchain install stable --profile minimal
+	"$rustup" toolchain install "$stable_toolchain" --profile minimal
 fi
 if ! printf '%s\n' "$toolchains" | grep -Eq '\([^)]*default[^)]*\)'; then
 	if [[ $audit -eq 1 ]]; then
 		devsetup_status install "Rust default" "would select stable because no default toolchain exists"
 	else
 		devsetup_status install "Rust default" "selecting stable because no default toolchain exists"
-		"$rustup" default stable
+		"$rustup" default "$stable_toolchain"
 	fi
 fi
-installed="$("$rustup" component list --installed --toolchain stable)"
+installed="$("$rustup" component list --installed --toolchain "$stable_toolchain")"
 for component in rustfmt clippy rust-src; do
 	if printf '%s\n' "$installed" | grep -Eq "^$component(-|$)"; then
 		devsetup_status found "Rust $component" "installed for stable"
 	elif [[ $audit -eq 1 ]]; then
 		devsetup_status install "Rust $component" "would add component to stable"
 	else
-		"$rustup" component add --toolchain stable "$component"
+		"$rustup" component add --toolchain "$stable_toolchain" "$component"
 		devsetup_status install "Rust $component" "added to stable"
 	fi
 done
 for tool in rustc cargo; do
-	version="$("$rustup" run stable "$tool" --version)"
+	version="$("$rustup" run "$stable_toolchain" "$tool" --version)"
 	devsetup_status found "Rust $tool" "$version"
 done
-if [[ $check_upgrades -eq 1 ]]; then "$rustup" check; fi
+if [[ $check_upgrades -eq 1 ]]; then
+	if ! upgrades="$("$rustup" check)"; then
+		devsetup_status warn Rust "rustup upgrade check failed"
+		exit 1
+	fi
+	while IFS= read -r line; do
+		if printf '%s\n' "$line" | grep -qi 'update available'; then
+			devsetup_status update Rust "$line (run: rustup update)"
+		elif printf '%s\n' "$line" | grep -qi 'up to date'; then
+			devsetup_status found Rust "$line"
+		elif [[ -n "$line" ]]; then
+			devsetup_status warn Rust "upgrade check: $line"
+		fi
+	done <<< "$upgrades"
+fi
 if [[ $audit -eq 1 ]]; then
 	devsetup_status skip "Rust build" "linker readiness is unverified; audit does not compile or run code"
 	exit 0
 fi
 
-rustup_dir="$(dirname "$rustup")"
 export PATH="$rustup_dir:$cargo_bin:$PATH"
-profile="$HOME/.profile"
-if [[ "$(uname -s)" == "Darwin" ]]; then profile="$HOME/.zprofile"; fi
-printf -v path_line "export PATH=%q:%q:\"\$PATH\"" "$rustup_dir" "$cargo_bin"
-if [[ ! -f "$profile" ]] || ! grep -Fqx "$path_line" "$profile"; then
+if [[ $needs_path -eq 1 ]]; then
 	if [[ -f "$profile" ]]; then cp "$profile" "$profile.devsetup-backup-$(date -u +%Y%m%d%H%M%S)"; fi
 	printf '\n# Added by bos-devsetup-kit for Rust.\n%s\n' "$path_line" >> "$profile"
 	devsetup_status install "Rust PATH" "added Rust tools to $profile (new login shells)"
@@ -100,7 +127,7 @@ fi
 probe="$(mktemp -d)"
 trap 'rm -f "$probe/probe.rs" "$probe/probe"; rmdir "$probe"' EXIT
 printf '%s\n' 'fn main() { println!("rust-ready"); }' > "$probe/probe.rs"
-if "$rustup" run stable rustc --edition 2021 --crate-name devsetup_probe "$probe/probe.rs" -o "$probe/probe" &&
+if "$rustup" run "$stable_toolchain" rustc --edition 2021 --crate-name devsetup_probe "$probe/probe.rs" -o "$probe/probe" &&
 	output="$("$probe/probe")" && [[ "$output" == "rust-ready" ]]; then
 	devsetup_status found "Rust build" "stable compiled, linked, and ran a native executable"
 else

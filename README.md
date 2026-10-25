@@ -353,7 +353,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                                                                     |
 | `user.mcp.servers`                          | 4 servers                                                                                                                                                                            | Added to `mcp.json` if absent. Existing entries are never overwritten.                                                                                                            |
 | `user.mcp.inputs`                           | `[]`                                                                                                                                                                                 | `${input:id}` definitions. Required by any server that references one.                                                                                                            |
-| `user.mcp.copilotConfig.manage`              | `true`                                                                                                                                                                               | Also add portable servers to `$COPILOT_HOME/mcp-config.json` (or `~/.copilot/mcp-config.json`).                                                                                    |
+| `user.mcp.copilotConfig.manage`             | `true`                                                                                                                                                                               | Also add portable servers to `$COPILOT_HOME/mcp-config.json` (or `~/.copilot/mcp-config.json`).                                                                                   |
 | `user.mcp.block`                            | `[]`                                                                                                                                                                                 | Server IDs that should not be configured. Reported as `[warn]` if present.                                                                                                        |
 | `user.mcp.removeBlocked`                    | `false`                                                                                                                                                                              | When `true`, blocked servers are deleted from `mcp.json` instead of reported.                                                                                                     |
 | `user.devcontainers.dockerAccess`           | `"outside-of-docker"`                                                                                                                                                                | `outside-of-docker`, `in-docker`, or `none`.                                                                                                                                      |
@@ -432,10 +432,8 @@ For VS Code settings, later wins:
 
 Command-line parameters override the config for a single run.
 
-Copilot Chat file edits are automatically accepted after 10 seconds
-(`chat.editing.autoAcceptDelay: 10`). This does not approve tool calls or
-terminal commands. The setting is written to both configured VS Code profiles
-and can follow the signed-in GitHub account through Settings Sync.
+The kit does not enable timed automatic acceptance of Copilot edits. Existing
+user choices are preserved; unattended permissions remain opt-in.
 
 ### Rust toolchain and editor
 
@@ -447,14 +445,16 @@ is unavailable (`advanced.rust.bootstrapBaseUrl`). The fallback runs noninteract
 without installing Visual Studio or changing the default host;
 macOS/Linux use Homebrew (`advanced.rust.homebrewFormula`, including its keg-only path).
 Existing rustup installations and `CARGO_HOME` are detected even when Cargo is not on PATH.
-Setup provisions **stable**, `rustfmt`, `clippy`, and `rust-src`, checks `rustc` and Cargo,
+Setup resolves rustup's configured default host and provisions that host's **stable**,
+`rustfmt`, `clippy`, and `rust-src`, checks `rustc` and Cargo,
 and preserves an existing default toolchain and repository toolchain pins.
 Missing components are repaired; existing toolchains are not automatically upgraded.
-Upgrade-check mode reports available updates via `rustup check`; update deliberately
-with `rustup update stable` when ready.
+Upgrade-check mode includes available `rustup check` updates in the setup summary;
+update deliberately with `rustup update` when ready.
 
 A normal run compiles, links, and executes a tiny temporary native program, then removes it.
-Audit never compiles or changes PATH; it explicitly reports build readiness as unverified.
+Audit never compiles or changes PATH; it reports planned PATH/profile changes and
+explicitly reports build readiness as unverified.
 A successful version check alone is not proof that Windows linking works.
 Failed probes report `[warn]`: MSVC requires C++ Build Tools; GNU requires compatible
 MinGW linker tools. Linux needs a C linker and development libraries; macOS needs Xcode
@@ -477,25 +477,64 @@ upload. Toolchains, Cargo caches, native SDKs, and machine PATH do **not** sync.
 ### Extensions
 
 `user.vscode.extensions.install` is a lean, broadly useful baseline rather than an exhaustive list:
-formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`), Python
-(`python`, `pylance`, `debugpy`), Rust (`rust-lang.rust-analyzer`),
+formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`, `shellcheck`),
+Python (`python`, `pylance`, `debugpy`, `vscode-python-envs`), Rust (`rust-lang.rust-analyzer`),
 GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
 containers and remote (`remote-containers`, `vscode-containers`), plus `powershell`, `yaml`,
-`makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
+`hcl`, `makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
 (`ms-playwright.playwright`) for running and debugging browser tests from VS Code.
+
+Python Environments is explicit even though the Python extension also includes it; this keeps
+environment management in the kit's audited baseline. ShellCheck provides editor diagnostics
+alongside the CLI installed by the kit. Prettier remains the general default. For Python and
+PowerShell, select `charliermarsh.ruff` and `ms-vscode.powershell`, respectively, in workspace
+language-specific formatter settings when needed; Prettier does not support those languages.
+Managed language override blocks preserve unrelated existing per-language choices.
+
+The workspace-facing baseline also appears in `user.devcontainers.extensions`, including HCL,
+Makefile Tools, Playwright, PowerShell, Python Environments, and ShellCheck. Container Tools and
+Dev Containers themselves stay on the host. Extensions do not provision a project's runtimes,
+test dependencies, or browser binaries inside a container.
 
 The extension is installed into each configured VS Code profile, but Playwright itself remains a
 per-project dependency. Use the extension's **Test: Install Playwright** command or
 `npm init playwright@latest` in a project to create its test setup and install the selected browsers;
 the setup kit does not install browser binaries globally.
 
-Other stack-specific extensions are intentionally left out — Azure, Go, Swift, docs-authoring, and
-similar belong to individual workflows, not a shared baseline. Playwright is the exception because
-its extension adds editor support while leaving test dependencies and browser installs
-project-scoped. Add whatever else you need to the list.
+#### Stack-specific recommendations
 
-`user.vscode.extensions.block` covers extensions that are **deprecated or superseded** by something
-in the install list, so having both causes duplicate diagnostics or fighting formatters:
+Keep these opt-in rather than installing every language, cloud explorer, or extension pack on
+every machine. Add the required IDs to `user.vscode.extensions.install` and, when needed in a
+container, `user.devcontainers.extensions`.
+
+| Workload | Recommended extension IDs | Guidance |
+| -------- | ------------------------- | -------- |
+| Rust | `rust-lang.rust-analyzer` | Use with a project-managed Rust toolchain. Prefer rustfmt through rust-analyzer over `jinxdash.prettier-rust`; set `editor.defaultFormatter` to `rust-lang.rust-analyzer` in a workspace `[rust]` override. |
+| Swift | `swiftlang.swift-vscode` | Install only where a Swift SDK/toolchain is available; its LLDB DAP dependency supplies debugging support. |
+| Go | `golang.go` | Useful for Go repositories, not required for the setup kit itself. |
+| C/C++ and CMake | `ms-vscode.cpptools`, `ms-vscode.cmake-tools` | Prefer the needed tools over the full C++ pack and its themes. |
+| Astro | `astro-build.astro-vscode` | Add for Astro projects; Prettier alone is not the language service. |
+| Vitest | `vitest.explorer` | Add when the repository uses Vitest; it complements rather than replaces Playwright Test. |
+| Azure | Service-specific `ms-azuretools.*` extensions | Install only the services used by the project, rather than the entire Azure Tools pack. |
+| Databases | `ms-mssql.mssql` or `mtxr.sqltools` with the appropriate driver | Choose according to the database; two explorers are not a universal requirement. |
+| Microsoft Learn authoring | `docsmsft.docs-authoring-pack` | Intended for Learn content; ordinary repository Markdown uses the baseline tools. |
+
+GitLens and Git History are optional additions to VS Code's built-in Git history, not baseline
+requirements. Keep `ms-python.mypy-type-checker` only when a project needs mypy: Ruff does linting,
+while Pylance and mypy do type analysis. Preview tools such as `typescriptteam.native-preview`
+belong in an experimental profile rather than the portable baseline. Optional does not mean
+blocked; the kit preserves installed tools that are not on its explicit block list.
+
+Publisher references: [Python Environments](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs),
+[ShellCheck](https://marketplace.visualstudio.com/items?itemName=timonwong.shellcheck), and
+[rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+
+#### Superseded-tool policy
+
+`user.vscode.extensions.block` is the kit's opinionated policy for tools that are deprecated,
+superseded, or overlap its chosen baseline. Not every blocked extension is unmaintained: a project
+that requires Black or Pylint should customize this policy rather than treating Ruff as an exact
+replacement for every rule.
 
 | Blocked                                                              | Superseded by                                   |
 | -------------------------------------------------------------------- | ----------------------------------------------- |
@@ -510,8 +549,12 @@ Blocked extensions are removed by default because `uninstallBlocked` is `true`; 
 to report them without removing them. An extension listed in both `install` and `block` is a
 configuration error and fails the run.
 
-Extension management needs the VS Code CLI (`code`) on `PATH`. Profiles whose CLI is missing are
-reported as `[skip]` and everything else still runs.
+The [Docker publisher's migration guidance](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker)
+confirms that the old Docker wrapper pack can be removed while keeping Container Tools.
+
+Extension management needs the matching VS Code CLI (`code` or `code-insiders`). On macOS and
+Linux the kit also checks `advanced.vscode.extensionCliFallbackPaths` when the CLI is not on
+`PATH`. Profiles whose CLI is missing are reported as `[skip]` and everything else still runs.
 
 ### MCP servers
 
@@ -872,8 +915,8 @@ changes your public GitHub profile/bio.
 
 Session history sync is separate from VS Code Settings Sync. The baseline enables
 `chat.sessionSync.enabled` and its required dependency,
-`github.copilot.chat.localIndex.enabled`. This allows Copilot session data to sync to the
-signed-in GitHub.com account for cross-device history. It requires a supported Copilot
+`github.copilot.chat.localIndex.enabled`. For supported Copilot harness sessions, this allows
+session data to sync to the signed-in GitHub.com account for cross-device history. It requires a supported Copilot
 sign-in and can be blocked by organization policy; setup does not sign in, override policy,
 or claim that all existing session history has finished uploading.
 
@@ -883,6 +926,9 @@ conversation content; review this privacy choice before using the baseline in se
 workspaces. The preferences themselves can roam through VS Code Settings Sync, but session
 data is uploaded independently by Copilot. A successful settings upload is not proof of a
 completed session-history upload.
+
+Use the [Copilot Chat migration process](#copilot-chat-migration-process) below for a
+source-to-target move rather than treating enabled preferences as a completed migration.
 
 The merge is additive and idempotent: existing settings and snippets are preserved, and JSONC
 comments and trailing commas are tolerated on read. The file is rewritten as plain JSON, so comments
@@ -897,6 +943,145 @@ the current LTS, not an obsolete release to accommodate an unsupported architect
 PowerShell requires the release asset's SHA256 digest. Downloads have finite timeouts and
 checksum failures leave no installation behind. These fallbacks do not enable automatic
 runtime upgrades or change the existing opt-in uninstall behavior.
+
+#### Agent runtime customization migrations
+
+**Agent Customizations > Migrations** is not session-history sync. It lists legacy
+customizations that need new locations for the Copilot agent runtime. Enabling session
+sync does not clear that dashboard.
+
+For the kit's terminal instructions and configured portable MCP servers, use this
+separate opt-in process from the kit directory. Select one existing configured profile
+(`insiders` below, or `stable`); do not run both blindly because their instruction
+contents can differ.
+
+1. **Audit** the actual customization move:
+
+   ```powershell
+   python .\src\configure-vscode.py --agent-customization-migration insiders --dry-run
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --agent-customization-migration insiders --dry-run
+   ```
+
+2. **Apply** after reviewing the plan, using the same command without `--dry-run`.
+   The process first checks every target for conflicts, then keeps private, exact-byte
+   recovery copies under `$COPILOT_HOME/migration-backups/` (default
+   `~/.copilot/migration-backups/`). Treat those copies as sensitive local data.
+   No tools are installed, session databases read, or VS Code restarts performed.
+3. **Verify** the runtime destinations:
+   - Portable configured servers already installed in that profile move from its
+     `mcp.json` `servers` object into `$COPILOT_HOME/mcp-config.json` `mcpServers`.
+     Unmanaged servers, existing nonconflicting targets, and input definitions remain.
+   - `prompts/terminal-execution.instructions.md` moves byte-for-byte into
+     `$COPILOT_HOME/instructions/terminal-execution.instructions.md`.
+   - Only after destination validation are the migrated source entries/files retired.
+     The source MCP file is rewritten as plain JSON; its original JSONC bytes are
+     preserved in the private recovery copy.
+4. **Reopen the Migrations view** and verify that the moved items no longer appear.
+   VS Code can request MCP trust again; approve that yourself after reviewing the server.
+   This process never grants trust or transfers OAuth credentials.
+5. **Rerun** the command to verify no changes. A local, per-profile
+   `$COPILOT_HOME/devsetup-agent-migrations.json` ownership record prevents later normal
+   setup runs from recreating these legacy candidates. Other profiles remain independent.
+   If the native UI already migrated an item, this command can record that ownership too.
+
+The runtime instructions and ownership record are machine-local; VS Code Settings Sync
+does not synchronize these Copilot-directory paths.
+
+The process honors the existing management opt-outs and `--config <path>`. Conflicting
+targets, changed files, symbolic-link files, or VS Code-only MCP fields stop with an
+explicit error; sources are retained. Use VS Code's native **Migrate...** action for
+servers needing input-variable, gallery, or other VS Code-specific conversion. Prompts,
+agents, hooks, and unrelated personal instructions are not silently migrated by this
+kit-specific command.
+
+For rollback, keep the private recovery directory: it contains the previous source,
+destination, and ownership-record files that existed. Inspect those copies before any
+manual restoration; do not blindly overwrite customizations subsequently edited.
+
+#### Copilot Chat migration process
+
+This section concerns **session history only**, not the
+[Agent Customizations migration dashboard](#agent-runtime-customization-migrations).
+
+The kit supports **preparing session sync**, not copying chat storage or automatically
+declaring history migrated. This separate, opt-in mode uses the existing config and
+cross-platform applier. It changes only the two session-sync preferences above in existing
+configured VS Code profile directories; it does not install tools/extensions, change MCP
+servers, request Settings Sync, read tokens, or restart VS Code. Normal setup is unchanged.
+
+Follow these stages in order:
+
+1. **Inventory and retain the source.** Identify the source machine, VS Code build/profile,
+   Copilot account, repositories, and chats you need. Keep that machine and its local
+   history intact. Session sync covers supported Copilot harness sessions; do not assume
+   legacy VS Code Chat or another harness's local history will be converted or uploaded.
+   Repository files, old absolute workspace paths, and machine-local checkpoints are not
+   migrated by this process.
+2. **Review privacy and policy.** History sync can upload conversation content to GitHub.
+   Check repository exclusions and organization policy before applying. Both preferences
+   must explicitly be `true` in `user.vscode.settings` (or inherited from
+   `advanced.vscode.settings`), and `user.install.vscodeSettings` must allow management.
+   An opt-out or missing dependency blocks preparation with `Not Assessed` and exit code 1;
+   the command does not override it. A local setting cannot override enterprise policy.
+3. **Audit the source**, from the kit directory:
+
+   ```powershell
+   python .\src\configure-vscode.py --copilot-chat-migration --dry-run
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --copilot-chat-migration --dry-run
+   ```
+
+   Use `--config <path>` for a personal config. Only existing directories selected by
+   `user.vscode.profiles` and `advanced.vscode.profileDirectories` are considered. If
+   none exist, open the intended VS Code build/profile and audit again. Back up its
+   `settings.json` before applying if you need its original comments: as with normal
+   setup, the additive merge preserves unrelated values but rewrites JSONC as plain JSON.
+4. **Prepare the source**, only after approving the audit and upload policy:
+
+   ```powershell
+   python .\src\configure-vscode.py --copilot-chat-migration
+   ```
+
+   ```bash
+   python3 ./src/configure-vscode.py --copilot-chat-migration
+   ```
+
+   The command rereads and validates the written preferences. Exit code 0 means only
+   that local preparation (or the dry-run plan) succeeded, not that history transferred.
+5. **Verify the source upload in VS Code.** Sign in to Copilot with the intended supported
+   GitHub.com account. In the Chat view's Copilot status bar, check session sync status.
+   Wait for **N sessions synced**, inspect the linked sessions on GitHub.com, and confirm
+   the required source sessions are present. **Syncing N sessions**, **Sync error**,
+   **Not enabled**, or **Disabled by policy** is not completion. Do not bypass policy.
+6. **Prepare and verify the target.** Repeat the audit and preparation commands on the
+   destination, use the same Copilot account, and open the repository's actual checkout.
+   Query history for known source sessions and inspect their conversation content.
+   Check every required repository/session before considering the move complete. Cloud
+   searchability is not proof that every legacy chat or local resume artifact was restored.
+7. **Keep a rollback path.** Retain source history until target verification succeeds.
+   If a required chat is missing or unsupported, leave migration **Not Assessed** and
+   use the fallback below where available. To stop future uploads, set
+   `chat.sessionSync.enabled` to `false` in the config and VS Code; this does not delete
+   data already uploaded to GitHub.
+
+**Local/legacy fallback:** on a build and session that offer the native commands, open
+each required source chat and run **Chat: Export Chat...**, preserving its JSON export
+privately outside the repository. Transfer that file securely, then run
+**Chat: Import Chat...** on the target and inspect the imported conversation. Do not
+convert Markdown transcripts, Copilot CLI event files, or SQLite data into guessed import
+formats. If those commands are unavailable for the session, retain the source and stop;
+the kit does not fabricate a successful import or copy `state.vscdb`, `workspaceStorage`,
+or credential stores. Imports do not relocate referenced files or guarantee cross-harness
+resumption. Follow organizational data-handling restrictions for offline exports too.
+
+See the official [session history and sync-status guide](https://code.visualstudio.com/docs/agents/run/sessions/session-history),
+[GitHub session-data documentation](https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/session-data),
+and [VS Code's native JSON export/import commands](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/actions/chatImportExport.ts).
 
 ## Repository hygiene
 

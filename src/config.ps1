@@ -252,14 +252,19 @@ function Add-DevSetupUserPath {
         containing PowerShell wildcard characters and wrongly treat
         C:\Python314 as present when only C:\Python314\Scripts is.
     #>
-    param([Parameter(Mandatory)][string]$Directory, [switch]$Prepend)
+    param([Parameter(Mandatory)][string]$Directory, [switch]$Prepend, [switch]$Audit)
 
-    if (-not (Test-Path $Directory)) { return }
+    if (-not $Audit -and -not (Test-Path $Directory)) { return }
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     $target = $Directory.TrimEnd("\")
     $entries = @($userPath -split ";" | Where-Object { $_ } | ForEach-Object { $_.Trim().TrimEnd("\") })
     if ($entries -contains $target) { return }
+
+    if ($Audit) {
+        Write-DevSetupStatus install "PATH" "would add $Directory to the user PATH"
+        return
+    }
 
     $updated = if ($Prepend) { "$Directory;$userPath" } else { "$userPath;$Directory" }
     [Environment]::SetEnvironmentVariable("Path", $updated, "User")
@@ -341,7 +346,7 @@ function Install-DevSetupWingetTool {
             }
         } else {
             Write-DevSetupStatus install $Component "installing $PackageId via winget (per-user, no admin, no GUI)"
-            & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+            & winget.exe install --id $PackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent --disable-interactivity | Out-Host
             if ($LASTEXITCODE -ne 0) {
                 if (-not $FallbackInstall) {
                     throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"

@@ -46,7 +46,7 @@ $fallback = {
         $expected = $Matches[1]
         if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $expected) { throw "Rustup SHA256 verification failed" }
         Write-DevSetupStatus install "rustup" "running official SHA256-verified user installer; no toolchain or linker default override"
-        & $installer -y --no-modify-path --default-toolchain none --profile minimal
+        & $installer -y --no-modify-path --default-toolchain none --profile minimal | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Rustup installer failed (exit $LASTEXITCODE)" }
         & $find
     } finally {
@@ -57,6 +57,7 @@ $rustup = Install-DevSetupWingetTool -Component "rustup" -PackageId $packageId -
     -FallbackInstall $fallback `
     -FallbackDescription "the official SHA256-verified user-local rustup installer" `
     -ManualInstallHint "Install rustup per-user from https://rustup.rs/; Windows native compilation also needs a working linker."
+if ($Audit) { Add-DevSetupUserPath $cargoBin -Audit }
 if (-not $rustup) {
     Write-DevSetupStatus install "Rust" "would provision stable with rustfmt, clippy, rust-src after rustup installation"
     Write-DevSetupStatus skip "Rust build" "linker readiness is unverified; audit does not compile or run code"
@@ -69,8 +70,19 @@ function Invoke-Rustup {
     if ($LASTEXITCODE -ne 0) { throw "rustup $($Arguments -join ' ') failed (exit $LASTEXITCODE)" }
 }
 
+$autoInstall = $env:RUSTUP_AUTO_INSTALL
+try {
+    $env:RUSTUP_AUTO_INSTALL = "0"
+    $defaultHost = @(Invoke-Rustup -Arguments @("show") | ForEach-Object {
+        if ($_ -match '^Default host:\s+(\S+)\s*$') { $Matches[1] }
+    })
+} finally {
+    $env:RUSTUP_AUTO_INSTALL = $autoInstall
+}
+if ($defaultHost.Count -ne 1) { throw "Could not resolve rustup's default host" }
+$stableToolchain = "stable-$($defaultHost[0])"
 $toolchains = @(Invoke-Rustup -Arguments @("toolchain", "list"))
-$hasStable = @($toolchains | Where-Object { $_ -match '^stable(?:-|\s|$)' }).Count -gt 0
+$hasStable = @($toolchains | Where-Object { ($_ -split '\s+', 2)[0] -eq $stableToolchain }).Count -gt 0
 if (-not $hasStable) {
     if ($Audit) {
         Write-DevSetupStatus install "Rust stable" "would install stable with rustfmt, clippy, rust-src; existing defaults remain unchanged"
@@ -78,33 +90,43 @@ if (-not $hasStable) {
         return
     }
     Write-DevSetupStatus install "Rust stable" "installing stable with minimal profile"
-    Invoke-Rustup -Arguments @("toolchain", "install", "stable", "--profile", "minimal") | Out-Host
+    Invoke-Rustup -Arguments @("toolchain", "install", $stableToolchain, "--profile", "minimal") | Out-Host
 }
 if (@($toolchains | Where-Object { $_ -match '\([^)]*\bdefault\b[^)]*\)' }).Count -eq 0) {
     if ($Audit) {
         Write-DevSetupStatus install "Rust default" "would select stable because no default toolchain exists"
     } else {
         Write-DevSetupStatus install "Rust default" "selecting stable because no default toolchain exists"
-        Invoke-Rustup -Arguments @("default", "stable") | Out-Host
+        Invoke-Rustup -Arguments @("default", $stableToolchain) | Out-Host
     }
 }
 
-$installed = @(Invoke-Rustup -Arguments @("component", "list", "--installed", "--toolchain", "stable"))
+$installed = @(Invoke-Rustup -Arguments @("component", "list", "--installed", "--toolchain", $stableToolchain))
 foreach ($component in @("rustfmt", "clippy", "rust-src")) {
     if (@($installed | Where-Object { $_ -eq $component -or $_ -like "$component-*" }).Count -gt 0) {
         Write-DevSetupStatus found "Rust $component" "installed for stable"
     } elseif ($Audit) {
         Write-DevSetupStatus install "Rust $component" "would add component to stable"
     } else {
-        Invoke-Rustup -Arguments @("component", "add", "--toolchain", "stable", $component) | Out-Host
+        Invoke-Rustup -Arguments @("component", "add", "--toolchain", $stableToolchain, $component) | Out-Host
         Write-DevSetupStatus install "Rust $component" "added to stable"
     }
 }
 foreach ($tool in @("rustc", "cargo")) {
-    $version = Invoke-Rustup -Arguments @("run", "stable", $tool, "--version")
+    $version = Invoke-Rustup -Arguments @("run", $stableToolchain, $tool, "--version")
     Write-DevSetupStatus found "Rust $tool" "$version"
 }
-if ($CheckUpgrades) { Invoke-Rustup -Arguments @("check") | Out-Host }
+if ($CheckUpgrades) {
+    foreach ($line in @(Invoke-Rustup -Arguments @("check"))) {
+        if ($line -match 'update available') {
+            Write-DevSetupStatus update "Rust" "$line (run: rustup update)"
+        } elseif ($line -match 'up to date') {
+            Write-DevSetupStatus found "Rust" "$line"
+        } elseif ($line.Trim()) {
+            Write-DevSetupStatus warn "Rust" "upgrade check: $line"
+        }
+    }
+}
 
 if ($Audit) {
     Write-DevSetupStatus skip "Rust build" "linker readiness is unverified; audit does not compile or run code"
@@ -120,7 +142,7 @@ try {
     $binary = Join-Path $probe "probe.exe"
     Set-Content -Path $source -Value 'fn main() { println!("rust-ready"); }' -Encoding ASCII
     try {
-        $output = & $rustup run stable rustc --edition 2021 --crate-name devsetup_probe $source -o $binary 2>&1 | Out-String
+        $output = & $rustup run $stableToolchain rustc --edition 2021 --crate-name devsetup_probe $source -o $binary 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) { throw $output.Trim() }
         $output = & $binary 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0 -or $output.Trim() -ne "rust-ready") { throw "compiled probe did not run successfully: $output" }

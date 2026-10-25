@@ -27,6 +27,7 @@ class RustSettingsTests(unittest.TestCase):
             "rust-analyzer.check.command": settings["rust-analyzer.check.command"],
         }
         self.assertTrue(config["user"]["install"]["rust"])
+        self.assertNotIn("chat.editing.autoAcceptDelay", settings)
         self.assertIn("rust-lang.rust-analyzer", config["user"]["vscode"]["extensions"]["install"])
         self.assertEqual(rust_settings["rust-analyzer.check.command"], "clippy")
         self.assertEqual(rust_settings["[rust]"]["editor.defaultFormatter"], "rust-lang.rust-analyzer")
@@ -275,6 +276,42 @@ class DefaultSettingsTests(unittest.TestCase):
         extensions = self.config["user"]["vscode"]["extensions"]["install"]
         self.assertIn("ms-playwright.playwright", extensions)
 
+    def test_python_environments_and_shellcheck_are_explicit_defaults(self):
+        for key in ("vscode", "devcontainers"):
+            with self.subTest(target=key):
+                extensions = self.config["user"][key]["extensions"]
+                if key == "vscode":
+                    extensions = extensions["install"]
+                self.assertIn("ms-python.vscode-python-envs", extensions)
+                self.assertIn("timonwong.shellcheck", extensions)
+
+    def test_workspace_extensions_follow_the_developer_into_containers(self):
+        host = {
+            extension.lower()
+            for extension in self.config["user"]["vscode"]["extensions"]["install"]
+        }
+        container = {
+            extension.lower()
+            for extension in self.config["user"]["devcontainers"]["extensions"]
+        }
+        host_only = {
+            "ms-azuretools.vscode-containers",
+            "ms-vscode-remote.remote-containers",
+        }
+        self.assertEqual(host - host_only - container, set())
+
+    def test_extension_defaults_are_unique_and_do_not_install_blocked_tools(self):
+        policy = self.config["user"]["vscode"]["extensions"]
+        blocked = {extension.lower() for extension in policy["block"]}
+        for target, extensions in (
+            ("host", policy["install"]),
+            ("container", self.config["user"]["devcontainers"]["extensions"]),
+        ):
+            with self.subTest(target=target):
+                normalized = {extension.lower() for extension in extensions}
+                self.assertEqual(len(extensions), len(normalized))
+                self.assertFalse(normalized & blocked)
+
     def test_baseline_keeps_terminals_visible_and_voice_disabled(self):
         settings = self.settings()
         self.assertEqual(settings["chat.requestQueuing.defaultAction"], "queue")
@@ -318,6 +355,102 @@ class DefaultSettingsTests(unittest.TestCase):
         self.assertTrue(self.config["user"]["vscode"]["settingsSync"]["syncAfterSetup"])
         self.config["user"]["vscode"]["settings"]["chat.sessionSync.enabled"] = False
         self.assertFalse(self.settings()["chat.sessionSync.enabled"])
+
+
+class ExtensionManagementTests(unittest.TestCase):
+    def setUp(self):
+        self.config = configure_vscode.load_json(configure_vscode.DEFAULT_CONFIG)
+        self.wanted = set(self.config["user"]["vscode"]["extensions"]["install"])
+        self.additions = {"ms-python.vscode-python-envs", "timonwong.shellcheck"}
+        self.optional = "example.optional-tool"
+        self.blocked = "ms-azuretools.vscode-docker"
+        self.installed = (self.wanted - self.additions) | {self.optional, self.blocked}
+
+    def test_plan_adds_recommendations_and_only_removes_explicitly_blocked_tools(self):
+        missing, blocked = configure_vscode.extension_plan(self.config, self.installed)
+        self.assertCountEqual(missing, self.additions)
+        self.assertEqual(blocked, [self.blocked])
+
+    def test_extension_audit_never_changes_installed_extensions(self):
+        before = set(self.installed)
+        with (
+            patch("configure_vscode.code_cli_targets", return_value=[("test", "code", "code")]),
+            patch("configure_vscode.installed_extensions", return_value=self.installed),
+            patch("configure_vscode.run_cli") as run,
+            patch("configure_vscode.status") as report,
+        ):
+            configure_vscode.manage_extensions(self.config, dry_run=True)
+            run.assert_not_called()
+            details = [call.args[2] for call in report.call_args_list]
+            for extension in self.additions:
+                self.assertIn(f"would install {extension} (test)", details)
+            self.assertIn(f"would uninstall blocked {self.blocked} (test)", details)
+        self.assertEqual(self.installed, before)
+
+    def test_apply_preserves_optional_tools_and_second_run_makes_no_changes(self):
+        def run_cli(cli, operation, extension, *args, **kwargs):
+            self.assertEqual(cli, "code")
+            if operation == "--install-extension":
+                self.installed.add(extension)
+            elif operation == "--uninstall-extension":
+                self.installed.remove(extension)
+            else:
+                self.fail(f"Unexpected extension operation: {operation}")
+            return 0, ""
+
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.object(sys, "argv", [str(SOURCE), "--skip-settings-sync"]),
+            patch(
+                "configure_vscode.profile_targets",
+                return_value=[("test", Path(temp_dir) / "User")],
+            ),
+            patch(
+                "configure_vscode.copilot_mcp_config_path",
+                return_value=Path(temp_dir) / "copilot-mcp.json",
+            ),
+            patch("configure_vscode.code_cli_targets", return_value=[("test", "code", "code")]),
+            patch("configure_vscode.installed_extensions", side_effect=lambda *args: set(self.installed)),
+            patch("configure_vscode.run_cli", side_effect=run_cli) as run,
+            patch("configure_vscode.status") as report,
+        ):
+            user_dir = Path(temp_dir) / "User"
+            user_dir.mkdir()
+            settings_path = user_dir / "settings.json"
+            custom_settings = {"editor.fontSize": 17, "[python]": {"editor.tabSize": 2}}
+            settings_path.write_text(json.dumps(custom_settings), encoding="utf-8")
+
+            def snapshot():
+                return {
+                    path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in Path(temp_dir).rglob("*")
+                    if path.is_file()
+                }
+
+            before = snapshot()
+            with patch.object(
+                sys, "argv", [str(SOURCE), "--dry-run", "--skip-settings-sync"]
+            ):
+                self.assertEqual(configure_vscode.main(), 0)
+            run.assert_not_called()
+            self.assertEqual(snapshot(), before)
+
+            self.assertEqual(configure_vscode.main(), 0)
+            self.assertEqual(run.call_count, len(self.additions) + 1)
+            self.assertEqual(self.installed, self.wanted | {self.optional})
+            saved = configure_vscode.load_json(settings_path)
+            self.assertEqual(saved["editor.fontSize"], custom_settings["editor.fontSize"])
+            self.assertEqual(saved["[python]"], custom_settings["[python]"])
+            self.assertTrue(self.additions <= set(saved["dev.containers.defaultExtensions"]))
+            before = snapshot()
+            run.reset_mock()
+            report.reset_mock()
+            self.assertEqual(configure_vscode.main(), 0)
+            run.assert_not_called()
+            self.assertEqual(snapshot(), before)
+            self.assertEqual(
+                {call.args[0] for call in report.call_args_list}, {"found", "skip"}
+            )
 
 
 class SettingsSyncTests(unittest.TestCase):
@@ -413,6 +546,200 @@ class SettingsSyncTests(unittest.TestCase):
         db.write_bytes(b"not a sqlite database")
         self.assertIsNone(self.real_reader({}, self.user_dir, "sync.enable"))
         self.assertEqual(self.status.call_args.args[0], "warn")
+
+
+class CopilotChatMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.user_dir = self.root / "profile"
+        self.user_dir.mkdir()
+        self.settings_path = self.user_dir / "settings.json"
+        self.original = '{"editor.fontSize": 17, "chat.sessionSync.enabled": false}\n'
+        self.settings_path.write_text(self.original, encoding="utf-8")
+        self.sync_settings = {
+            "chat.sessionSync.enabled": True,
+            "github.copilot.chat.localIndex.enabled": True,
+        }
+        self.config = {"user": {"vscode": {"settings": dict(self.sync_settings)}}}
+        targets = patch(
+            "configure_vscode.profile_targets",
+            return_value=[("test", self.user_dir)],
+        )
+        self.targets = targets.start()
+        self.addCleanup(targets.stop)
+        report = patch("configure_vscode.status")
+        self.report = report.start()
+        self.addCleanup(report.stop)
+
+    def test_audit_is_read_only_and_does_not_claim_history_was_migrated(self):
+        before = (self.settings_path.read_bytes(), self.settings_path.stat().st_mtime_ns)
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, True), 0
+        )
+        self.assertEqual(
+            before,
+            (self.settings_path.read_bytes(), self.settings_path.stat().st_mtime_ns),
+        )
+        details = "\n".join(call.args[2] for call in self.report.call_args_list)
+        self.assertIn("Not Assessed", details)
+        self.assertIn("SOURCE", details)
+        self.assertIn("TARGET", details)
+
+    def test_apply_changes_only_sync_preferences_and_second_run_is_idempotent(self):
+        self.config["user"]["vscode"]["settings"]["editor.fontSize"] = 99
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, False), 0
+        )
+        self.assertEqual(
+            json.loads(self.settings_path.read_text()),
+            {"editor.fontSize": 17, **self.sync_settings},
+        )
+        before = (self.settings_path.read_bytes(), self.settings_path.stat().st_mtime_ns)
+        self.report.reset_mock()
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, False), 0
+        )
+        self.assertEqual(
+            before,
+            (self.settings_path.read_bytes(), self.settings_path.stat().st_mtime_ns),
+        )
+        self.assertTrue(all(
+            call.args[0] in {"found", "skip"} for call in self.report.call_args_list
+        ))
+
+    def test_explicitly_enabled_preferences_are_required_before_any_write(self):
+        for key in self.sync_settings:
+            for value in (False, None, "true", 1):
+                with self.subTest(key=key, value=value):
+                    self.config["user"]["vscode"]["settings"][key] = value
+                    self.assertEqual(
+                        configure_vscode.prepare_copilot_chat_migration(self.config, False),
+                        1,
+                    )
+                    self.assertEqual(self.settings_path.read_text(), self.original)
+                    self.assertIn("Not Assessed", self.report.call_args.args[2])
+            self.config["user"]["vscode"]["settings"][key] = True
+
+    def test_advanced_settings_are_inherited_and_user_opt_out_wins(self):
+        self.config["advanced"] = {
+            "vscode": {"settings": dict(self.sync_settings)}
+        }
+        self.config["user"]["vscode"]["settings"] = {}
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, True), 0
+        )
+        self.config["user"]["vscode"]["settings"]["chat.sessionSync.enabled"] = False
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, False), 1
+        )
+        self.assertEqual(self.settings_path.read_text(), self.original)
+
+    def test_disabled_settings_management_and_missing_profiles_do_not_write(self):
+        self.config["user"]["install"] = {"vscodeSettings": False}
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, False), 1
+        )
+        self.targets.assert_not_called()
+        self.config["user"]["install"]["vscodeSettings"] = True
+        missing = self.root / "missing"
+        self.targets.return_value = [("missing", missing)]
+        self.assertEqual(
+            configure_vscode.prepare_copilot_chat_migration(self.config, False), 1
+        )
+        self.assertFalse(missing.exists())
+        self.assertIn("Not Assessed", self.report.call_args.args[2])
+
+    def test_all_profiles_are_preflighted_before_writing(self):
+        other = self.root / "other"
+        other.mkdir()
+        self.targets.return_value.append(("other", other))
+        for invalid in ("[]", '{"broken":'):
+            with self.subTest(invalid=invalid):
+                (other / "settings.json").write_text(invalid, encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    configure_vscode.prepare_copilot_chat_migration(self.config, False)
+                self.assertEqual(self.settings_path.read_text(), self.original)
+
+    def test_cli_mode_bypasses_normal_setup_and_settings_sync(self):
+        with (
+            patch.object(sys, "argv", [
+                "configure-vscode.py", "--copilot-chat-migration", "--dry-run"
+            ]),
+            patch("configure_vscode.load_json", return_value=self.config),
+            patch(
+                "configure_vscode.prepare_copilot_chat_migration", return_value=1
+            ) as prepare,
+            patch("configure_vscode.build_settings") as build,
+            patch("configure_vscode.sync_settings") as sync,
+        ):
+            self.assertEqual(configure_vscode.main(), 1)
+        prepare.assert_called_once_with(self.config, True)
+        build.assert_not_called()
+        sync.assert_not_called()
+
+
+class CopilotChatMigrationCliTests(unittest.TestCase):
+    def test_disposable_profile_audit_apply_and_second_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            profile = root / "profile"
+            profile.mkdir()
+            settings = profile / "settings.json"
+            settings.write_text('{"editor.fontSize": 17}\n', encoding="utf-8")
+            storage = profile / "globalStorage"
+            storage.mkdir()
+            state = storage / "state.vscdb"
+            state.write_bytes(b"existing state must not be read or rewritten")
+            config = json.loads(configure_vscode.DEFAULT_CONFIG.read_text())
+            config["user"]["vscode"]["profiles"] = ["test"]
+            for os_key in ("windows", "macos", "linux"):
+                config["advanced"]["vscode"]["profileDirectories"][os_key] = {
+                    "test": str(profile)
+                }
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            env = os.environ.copy()
+            env.pop("DEVSETUP_STATUS_LOG", None)
+            env.update(NO_COLOR="1", COPILOT_HOME=str(root / "copilot"))
+            command = [
+                sys.executable, str(SOURCE), "--config", str(config_path),
+                "--copilot-chat-migration",
+            ]
+
+            def snapshot():
+                return {
+                    path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+                    for path in root.rglob("*") if path.is_file()
+                }
+
+            def run(*options):
+                result = subprocess.run(
+                    [*command, *options], env=env, capture_output=True, text=True,
+                    timeout=30, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Not Assessed", result.stdout)
+                return result.stdout
+
+            before = snapshot()
+            run("--dry-run")
+            self.assertEqual(snapshot(), before)
+            first = run()
+            self.assertIn("[install]", first)
+            self.assertEqual(json.loads(settings.read_text()), {
+                "editor.fontSize": 17,
+                "chat.sessionSync.enabled": True,
+                "github.copilot.chat.localIndex.enabled": True,
+            })
+            self.assertEqual(state.read_bytes(), before[state.relative_to(root)][0])
+            self.assertFalse((root / "copilot").exists())
+            prepared = snapshot()
+            second = run()
+            self.assertEqual(snapshot(), prepared)
+            self.assertNotIn("[install]", second)
+            self.assertNotIn("[warn]", second)
 
 
 class SyncOrderingTests(unittest.TestCase):
