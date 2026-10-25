@@ -313,6 +313,7 @@ function Install-DevSetupWingetTool {
         [Parameter(Mandatory)][string]$ManualInstallHint,
         [string[]]$VersionArgs = @("--version"),
         [scriptblock]$FallbackInstall,
+        [string]$FallbackDescription = "an official checksum-verified ZIP in the user profile",
         [switch]$Audit,
         [switch]$CheckUpgrades
     )
@@ -326,7 +327,7 @@ function Install-DevSetupWingetTool {
         } elseif (Get-Command winget.exe -ErrorAction SilentlyContinue) {
             Write-DevSetupStatus install $Component "would install $PackageId via winget"
         } elseif ($FallbackInstall) {
-            Write-DevSetupStatus install $Component "would install an official checksum-verified ZIP in the user profile"
+            Write-DevSetupStatus install $Component "would install $FallbackDescription"
         } else {
             Write-DevSetupStatus warn $Component "missing and winget is unavailable"
         }
@@ -345,7 +346,7 @@ function Install-DevSetupWingetTool {
                 if (-not $FallbackInstall) {
                     throw "winget failed to install $PackageId (exit code $LASTEXITCODE), and a per-user install may not be supported for this package. $ManualInstallHint"
                 }
-                Write-DevSetupStatus warn $Component "user-scoped WinGet install failed; trying an official user-local ZIP instead"
+                Write-DevSetupStatus warn $Component "user-scoped WinGet install failed; trying $FallbackDescription instead"
             }
             Update-DevSetupSessionPath
             $exe = & $Find

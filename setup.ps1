@@ -76,6 +76,7 @@ function Write-DevSetupConfiguration {
     $mcpServers = Get-DevSetupValue $Config 'user.mcp.servers' ([pscustomobject]@{})
     $mcpCount = @($mcpServers.PSObject.Properties).Count
     Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Prettier=$((Get-DevSetupValue $Config 'user.install.prettier' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
+    Write-Host "                     Rust=$((Get-DevSetupValue $Config 'user.install.rust' $true)) (stable, rustfmt, clippy, rust-src)"
     Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), ripgrep=$((Get-DevSetupValue $Config 'user.install.ripgrep' $true)), BusyBox=$((Get-DevSetupValue $Config 'user.install.busybox' $true)), Packer=$((Get-DevSetupValue $Config 'user.install.packer' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
     Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
     Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $true)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github')), skip=$SkipSettingsSync"
@@ -129,6 +130,9 @@ if ($Uninstall) {
     if (Get-DevSetupValue $config "user.install.php" $true) {
         & (Join-Path $scripts "install-php.ps1") -Uninstall -Audit:$Audit
     }
+    if (Get-DevSetupValue $config "user.install.rust" $true) {
+        & (Join-Path $scripts "install-rust.ps1") -Uninstall -Audit:$Audit
+    }
     if (Get-DevSetupValue $config "user.install.powershell" $true) {
         & (Join-Path $scripts "install-powershell.ps1") -Uninstall -Audit:$Audit
     }
@@ -176,6 +180,9 @@ if ($CheckUpgradesOnly) {
     }
     if (Get-DevSetupValue $config "user.install.php" $true) {
         & (Join-Path $scripts "install-php.ps1") -Audit -CheckUpgrades | Out-Null
+    }
+    if (Get-DevSetupValue $config "user.install.rust" $true) {
+        & (Join-Path $scripts "install-rust.ps1") -Audit -CheckUpgrades
     }
     if (Get-DevSetupValue $config "user.install.powershell" $true) {
         & (Join-Path $scripts "install-powershell.ps1") -Audit -CheckUpgrades | Out-Null
@@ -237,6 +244,12 @@ if (Get-DevSetupValue $config "user.install.python" $true) {
         Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "Python" "user.install.python is false"
+}
+
+if (Get-DevSetupValue $config "user.install.rust" $true) {
+    & (Join-Path $scripts "install-rust.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+} else {
+    Write-DevSetupStatus skip "Rust" "user.install.rust is false"
 }
 
 if (Get-DevSetupValue $config "user.install.php" $true) {

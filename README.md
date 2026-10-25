@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
+Installs Git, Node.js, Prettier, Python, Rust, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
 per-user, plus BusyBox on Windows, then applies VS Code settings and portable Copilot MCP defaults.
 VS Code profile settings can follow you through Settings Sync; Copilot's separate global MCP
 config is not covered by Settings Sync. Every step auto-detects what is already present and skips
@@ -23,7 +23,7 @@ Platform requirements:
 
 - **Windows:** PowerShell 5.1+. WinGet for PHP, ShellCheck, ripgrep, BusyBox, and Packer.
   Official portable ZIP fallbacks for Node.js and PowerShell; `uv` fallback for Python.
-  Prettier uses npm.
+  Rust uses user-scoped WinGet or the official verified rustup installer. Prettier uses npm.
 - **macOS:** Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell,
   ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm.
 - **Ubuntu / Debian:** Homebrew is installed under `$HOME` automatically if missing;
@@ -38,7 +38,8 @@ No administrator or root access is required by the primary setup flow. WSL is ne
   official portable ZIPs if WinGet is missing, fails, or does not produce an executable.
   ZIPs are SHA256-verified against official release metadata, staged, then installed under
   `%LOCALAPPDATA%\Programs`; existing destination content is never overwritten.
-  Python can fall back to user-local `uv`. Other unsupported packages report failure rather
+  Python can fall back to user-local `uv`; Rust can use its official SHA256-verified
+  user-local installer. Other unsupported packages report failure rather
   than retrying with machine scope or requesting elevation. WinGet uninstall is user-scoped
   too; portable ZIP fallbacks are deliberately left in place, not recursively removed.
 - macOS and Linux bootstrap Homebrew from its source archive into `$HOME/.linuxbrew`. Homebrew
@@ -431,11 +432,54 @@ For VS Code settings, later wins:
 
 Command-line parameters override the config for a single run.
 
+Copilot Chat file edits are automatically accepted after 10 seconds
+(`chat.editing.autoAcceptDelay: 10`). This does not approve tool calls or
+terminal commands. The setting is written to both configured VS Code profiles
+and can follow the signed-in GitHub account through Settings Sync.
+
+### Rust toolchain and editor
+
+`user.install.rust` (default `true`) enables `src/scripts/install-rust.ps1` or
+`src/scripts/install-rust.sh` in setup, audit, and upgrade-check modes.
+Windows installs rustup through user-scoped WinGet (`advanced.rust.wingetPackageId`),
+falling back to the official SHA256-verified rustup installer when user-scoped WinGet
+is unavailable (`advanced.rust.bootstrapBaseUrl`). The fallback runs noninteractively
+without installing Visual Studio or changing the default host;
+macOS/Linux use Homebrew (`advanced.rust.homebrewFormula`, including its keg-only path).
+Existing rustup installations and `CARGO_HOME` are detected even when Cargo is not on PATH.
+Setup provisions **stable**, `rustfmt`, `clippy`, and `rust-src`, checks `rustc` and Cargo,
+and preserves an existing default toolchain and repository toolchain pins.
+Missing components are repaired; existing toolchains are not automatically upgraded.
+Upgrade-check mode reports available updates via `rustup check`; update deliberately
+with `rustup update stable` when ready.
+
+A normal run compiles, links, and executes a tiny temporary native program, then removes it.
+Audit never compiles or changes PATH; it explicitly reports build readiness as unverified.
+A successful version check alone is not proof that Windows linking works.
+Failed probes report `[warn]`: MSVC requires C++ Build Tools; GNU requires compatible
+MinGW linker tools. Linux needs a C linker and development libraries; macOS needs Xcode
+Command Line Tools. Setup never elevates, installs these system prerequisites, changes the
+host target, or writes a global linker workaround. Shared Rust installations and Cargo
+packages are intentionally preserved by uninstall on both platforms.
+Open a new terminal/login shell manually to pick up PATH changes.
+
+The editor baseline installs official `rust-lang.rust-analyzer`, uses Clippy for checks,
+and scopes rust-analyzer formatting/format-on-save to `[rust]`. Existing additional
+Rust language settings are preserved. No duplicate debugger, deprecated Rust extension,
+or unverified Rust MCP server is added. TOML support is optional rather than another default.
+
+These user settings and extensions follow the existing **GitHub Settings Sync** handoff:
+in VS Code, turn on Settings Sync, sign in with GitHub, and include **Settings** and
+**Extensions**. Confirm the Rust entries with **Settings Sync: Show Synced Data**.
+Local configuration or an accepted `--sync on` request is not proof of completed cloud
+upload. Toolchains, Cargo caches, native SDKs, and machine PATH do **not** sync.
+
 ### Extensions
 
 `user.vscode.extensions.install` is a lean, broadly useful baseline rather than an exhaustive list:
 formatting and linting (`editorconfig`, `prettier`, `eslint`, `ruff`, `markdownlint`), Python
-(`python`, `pylance`, `debugpy`), GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
+(`python`, `pylance`, `debugpy`), Rust (`rust-lang.rust-analyzer`),
+GitHub (`vscode-github-actions`, `vscode-pull-request-github`),
 containers and remote (`remote-containers`, `vscode-containers`), plus `powershell`, `yaml`,
 `makefile-tools`, `code-spell-checker`, `markdown-all-in-one`, and the Playwright Test extension
 (`ms-playwright.playwright`) for running and debugging browser tests from VS Code.

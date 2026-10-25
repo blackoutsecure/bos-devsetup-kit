@@ -271,6 +271,10 @@ def apply(user_dir: Path, settings: dict, snippet, dry_run: bool) -> bool:
     settings_path = user_dir / "settings.json"
     current = load_json(settings_path)
     for key, value in settings.items():
+        if key.startswith("[") and key.endswith("]") and isinstance(value, dict):
+            existing = current.get(key, {})
+            if isinstance(existing, dict):
+                value = {**existing, **value}
         if current.get(key) != value:
             current[key] = value
             changes.append(key)
@@ -465,7 +469,14 @@ def validate_profiles(config: dict, settings: dict, snippet) -> None:
     for profile, user_dir in targets:
         settings_path = user_dir / "settings.json"
         current = load_json(settings_path)
-        mismatched = [key for key, value in settings.items() if current.get(key) != value]
+        mismatched = []
+        for key, value in settings.items():
+            actual = current.get(key)
+            if key.startswith("[") and key.endswith("]") and isinstance(value, dict) and isinstance(actual, dict):
+                if all(actual.get(name) == expected for name, expected in value.items()):
+                    continue
+            if actual != value:
+                mismatched.append(key)
         if mismatched:
             raise SystemExit(
                 f"VS Code settings validation failed for {profile}: "

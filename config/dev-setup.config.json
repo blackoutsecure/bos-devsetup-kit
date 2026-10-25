@@ -11,6 +11,7 @@
             "node": true,
             "prettier": true,
             "python": true,
+            "rust": true,
             "php": true,
             "powershell": true,
             "shellcheck": true,
@@ -68,6 +69,7 @@
                     "ms-vscode.makefile-tools",
                     "ms-vscode.powershell",
                     "redhat.vscode-yaml",
+                    "rust-lang.rust-analyzer",
                     "streetsidesoftware.code-spell-checker",
                     "yzhang.markdown-all-in-one"
                 ],
@@ -91,6 +93,7 @@
                 "chat.defaultModel": "auto",
                 "chat.defaultToCopilotHarness": true,
                 "chat.editor.preferCopilotHarness": true,
+                "chat.editing.autoAcceptDelay": 10,
                 "chat.newSession.defaultMode": "agent",
                 "chat.requestQueuing.defaultAction": "queue",
                 "chat.sessionSync.enabled": true,
@@ -119,6 +122,11 @@
                 "python.analysis.typeCheckingMode": "strict",
                 "python.terminal.activateEnvironment": true,
                 "redhat.telemetry.enabled": false,
+                "rust-analyzer.check.command": "clippy",
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+                    "editor.formatOnSave": true
+                },
                 "remote.autoForwardPortsSource": "hybrid",
                 "security.workspace.trust.banner": "always",
                 "security.workspace.trust.startupPrompt": "always",
@@ -263,6 +271,11 @@
             "npmPackageSpec": "prettier@latest",
             "windowsGlobalPrefix": "%USERPROFILE%\\.npm-global",
             "unixGlobalPrefix": "$HOME/.npm-global"
+        },
+        "rust": {
+            "homebrewFormula": "rustup",
+            "wingetPackageId": "Rustlang.Rustup",
+            "bootstrapBaseUrl": "https://static.rust-lang.org/rustup/dist"
         },
         "php": {
             "homebrewFormula": "php",

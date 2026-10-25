@@ -18,6 +18,40 @@ sys.modules[SPEC.name] = configure_vscode
 SPEC.loader.exec_module(configure_vscode)
 
 
+class RustSettingsTests(unittest.TestCase):
+    def test_rust_defaults_and_additive_language_settings(self):
+        config = configure_vscode.load_json(SOURCE.parents[1] / "config" / "dev-setup.config.json")
+        settings = configure_vscode.build_settings(config, None, None, None, None)
+        rust_settings = {
+            "[rust]": settings["[rust]"],
+            "rust-analyzer.check.command": settings["rust-analyzer.check.command"],
+        }
+        self.assertTrue(config["user"]["install"]["rust"])
+        self.assertIn("rust-lang.rust-analyzer", config["user"]["vscode"]["extensions"]["install"])
+        self.assertEqual(rust_settings["rust-analyzer.check.command"], "clippy")
+        self.assertEqual(rust_settings["[rust]"]["editor.defaultFormatter"], "rust-lang.rust-analyzer")
+        self.assertTrue(rust_settings["[rust]"]["editor.formatOnSave"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile = Path(temp_dir)
+            path = profile / "settings.json"
+            original = {"[rust]": {"editor.tabSize": 4}, "[python]": {"editor.tabSize": 2}}
+            path.write_text(json.dumps(original), encoding="utf-8")
+            before = path.read_bytes()
+            self.assertTrue(configure_vscode.apply(profile, rust_settings, None, True))
+            self.assertEqual(path.read_bytes(), before)
+            self.assertTrue(configure_vscode.apply(profile, rust_settings, None, False))
+            actual = json.loads(path.read_text())
+            self.assertEqual(actual["[rust]"]["editor.tabSize"], 4)
+            self.assertEqual(actual["[python]"], original["[python]"])
+            self.assertFalse(configure_vscode.apply(profile, rust_settings, None, False))
+            with patch.object(configure_vscode, "profile_targets", return_value=[("test", profile)]):
+                configure_vscode.validate_profiles({}, rust_settings, None)
+                actual["[rust]"]["editor.formatOnSave"] = False
+                path.write_text(json.dumps(actual), encoding="utf-8")
+                with self.assertRaisesRegex(SystemExit, "settings validation failed"):
+                    configure_vscode.validate_profiles({}, rust_settings, None)
+
+
 class CopilotMcpConfigTests(unittest.TestCase):
     def test_uses_copilot_home_when_configured(self):
         with patch.dict(os.environ, {"COPILOT_HOME": "~/copilot-home"}):
