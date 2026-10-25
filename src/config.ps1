@@ -370,19 +370,28 @@ function Install-DevSetupWingetTool {
 function Install-DevSetupPortableRuntime {
     param(
         [Parameter(Mandatory)]$Config,
-        [Parameter(Mandatory)][ValidateSet("node", "powershell")][string]$Tool
+        [Parameter(Mandatory)][ValidateSet("node", "powershell", "githubCli")][string]$Tool
     )
 
-    $defaultDir = if ($Tool -eq "node") { "%LOCALAPPDATA%\Programs\nodejs" } else { "%LOCALAPPDATA%\Programs\PowerShell" }
+    $defaultDir = switch ($Tool) {
+        "node" { "%LOCALAPPDATA%\Programs\nodejs" }
+        "powershell" { "%LOCALAPPDATA%\Programs\PowerShell" }
+        "githubCli" { "%LOCALAPPDATA%\Programs\GitHub CLI" }
+    }
     $installDir = [IO.Path]::GetFullPath((Expand-DevSetupPath (Get-DevSetupValue $Config "advanced.$Tool.portableInstallDir" $defaultDir)))
     $userRoot = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\') + '\'
     if (-not $installDir.StartsWith($userRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Portable $Tool must be installed below the user profile, not $installDir."
     }
-    $exeName = if ($Tool -eq "node") { "node.exe" } else { "pwsh.exe" }
+    $exeName = switch ($Tool) {
+        "node" { "node.exe" }
+        "powershell" { "pwsh.exe" }
+        "githubCli" { "bin\gh.exe" }
+    }
     $exe = Join-Path $installDir $exeName
+    $binDir = Split-Path -Parent $exe
     if (Test-Path $exe) {
-        Add-DevSetupUserPath $installDir -Prepend
+        Add-DevSetupUserPath $binDir -Prepend
         return $exe
     }
     if (Test-Path $installDir) {
@@ -404,13 +413,19 @@ function Install-DevSetupPortableRuntime {
         if (-not $hashLine) { throw "Official Node.js checksums do not include $assetName." }
         $expectedHash = ($hashLine -split '\s+')[0]
     } else {
-        $releaseApi = Get-DevSetupValue $Config "advanced.powershell.portableReleaseApiUrl" "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
+        $defaultApi = if ($Tool -eq "powershell") { "https://api.github.com/repos/PowerShell/PowerShell/releases/latest" } else { "https://api.github.com/repos/cli/cli/releases/latest" }
+        $releaseApi = Get-DevSetupValue $Config "advanced.$Tool.portableReleaseApiUrl" $defaultApi
         $release = Invoke-RestMethod -Uri $releaseApi -TimeoutSec 30
         $version = $release.tag_name -replace '^v', ''
-        $assetName = "PowerShell-$version-win-$architecture.zip"
+        if ($Tool -eq "powershell") {
+            $assetName = "PowerShell-$version-win-$architecture.zip"
+        } else {
+            $cliArchitecture = switch ($architecture) { "x64" { "amd64" }; "x86" { "386" }; default { $architecture } }
+            $assetName = "gh_${version}_windows_$cliArchitecture.zip"
+        }
         $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
         if (-not $asset -or $asset.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {
-            throw "Official PowerShell release metadata has no checksum-verified $assetName."
+            throw "Official $Tool release metadata has no checksum-verified $assetName."
         }
         $expectedHash = $Matches[1]
         $url = $asset.browser_download_url
@@ -436,7 +451,7 @@ function Install-DevSetupPortableRuntime {
     } finally {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
-    Add-DevSetupUserPath $installDir -Prepend
+    Add-DevSetupUserPath $binDir -Prepend
     Write-DevSetupStatus install $Tool "installed official portable runtime to $installDir; start a new terminal yourself when ready"
     return $exe
 }

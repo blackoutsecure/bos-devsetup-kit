@@ -4,7 +4,7 @@
 
 Cross-platform developer environment setup for machines **without local admin rights**.
 
-Installs Git, Node.js, Prettier, Python, Rust, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
+Installs Git, GitHub CLI, Node.js, Prettier, Python, Rust, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG
 per-user, plus BusyBox on Windows, then applies VS Code settings and portable Copilot MCP defaults.
 VS Code profile settings can follow you through Settings Sync; Copilot's separate global MCP
 config is not covered by Settings Sync. Every step auto-detects what is already present and skips
@@ -22,19 +22,19 @@ it, reporting each decision in the terminal. Nothing requires WSL, sudo, or a GU
 Platform requirements:
 
 - **Windows:** PowerShell 5.1+. WinGet for PHP, ShellCheck, ripgrep, BusyBox, and Packer.
-  Official portable ZIP fallbacks for Node.js and PowerShell; `uv` fallback for Python.
+  Official portable ZIP fallbacks for GitHub CLI, Node.js, and PowerShell; `uv` fallback for Python.
   Rust uses user-scoped WinGet or the official verified rustup installer. Prettier uses npm.
-- **macOS:** Xcode Command Line Tools for Git. Homebrew for Node.js, PHP, PowerShell,
+- **macOS:** Xcode Command Line Tools for Git. Homebrew for GitHub CLI, Node.js, PHP, PowerShell,
   ShellCheck, ripgrep, Packer, and GPG. Prettier uses npm.
 - **Ubuntu / Debian:** Homebrew is installed under `$HOME` automatically if missing;
-  used for Git, Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG.
+  used for Git, GitHub CLI, Node.js, PHP, PowerShell, ShellCheck, ripgrep, Packer, and GPG.
   Prettier uses npm.
 
 No administrator or root access is required by the primary setup flow. WSL is never installed or invoked by `setup.ps1`.
 
 ### No-admin limitations
 
-- Windows WinGet installs always request user scope. Node.js and PowerShell 7 fall back to
+- Windows WinGet installs always request user scope. GitHub CLI, Node.js, and PowerShell 7 fall back to
   official portable ZIPs if WinGet is missing, fails, or does not produce an executable.
   ZIPs are SHA256-verified against official release metadata, staged, then installed under
   `%LOCALAPPDATA%\Programs`; existing destination content is never overwritten.
@@ -744,6 +744,26 @@ Each installer runs standalone and accepts `-Audit` / `--audit`.
 - Configures the credential helper and applies `user.git.userName` / `user.git.userEmail` when set.
   Each value is compared first, so a second run reports `[found]`.
 - `-ConfigureVSCode` points `git.path` at the resolved binary across every configured profile.
+
+### GitHub CLI
+
+`user.install.githubCli` (default `true`) enables GitHub CLI in setup, audit, upgrade-check,
+and uninstall modes on both platform paths. macOS/Linux use the Homebrew formula from
+`advanced.githubCli.homebrewFormula` (`gh`). Windows uses
+`advanced.githubCli.wingetPackageId` (`GitHub.cli`) with user scope only.
+
+If WinGet is unavailable, fails, or does not expose `gh.exe`, Windows installs an official
+SHA256-verified ZIP under `advanced.githubCli.portableInstallDir`
+(`%LOCALAPPDATA%\Programs\GitHub CLI`). Release metadata comes from
+`advanced.githubCli.portableReleaseApiUrl`
+(`https://api.github.com/repos/cli/cli/releases/latest`).
+The shared portable installer stages and verifies the archive before moving it into an
+unused user-local destination, preserves existing directories, and adds its `bin` to the
+user PATH. `advanced.githubCli.windowsSearchPaths` controls additional executable lookup.
+
+Audit never installs or changes PATH. User-scoped uninstall preserves portable ZIP
+directories for deliberate manual removal. Setup never elevates, signs into GitHub, or
+handles authentication tokens; use `gh auth login` yourself when needed.
 
 ### Python
 

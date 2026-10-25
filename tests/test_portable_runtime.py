@@ -19,7 +19,9 @@ class PortableRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             archive = root / "fixture.zip"
-            exe_name = "node.exe" if tool == "node" else "pwsh.exe"
+            exe_name = {
+                "node": "node.exe", "powershell": "pwsh.exe", "githubCli": "bin/gh.exe",
+            }[tool]
             architecture = (
                 "arm64"
                 if "ARM64" in (
@@ -48,6 +50,16 @@ function Invoke-RestMethod {
     $global:metadataCalls++
     if ($Uri -like '*index.json') {
         return [pscustomobject]@{ version='v24.0.0'; lts='test'; files=@('win-ARCH-zip') }
+    }
+    if ($Uri -like '*repos/cli/cli/*') {
+        return [pscustomobject]@{
+            tag_name='v2.103.2'
+            assets=@([pscustomobject]@{
+                name='gh_2.103.2_windows_GHARCH.zip'
+                digest='sha256:DIGEST'
+                browser_download_url='https://example.test/runtime.zip'
+            })
+        }
     }
     return [pscustomobject]@{
         tag_name='v7.6.0'
@@ -80,6 +92,7 @@ Write-Host 'PASS: installed twice with one metadata request'
                 "ARCHIVE_PATH": str(archive),
                 "INSTALL_DIR": str(install_dir),
                 "TOOL": tool,
+                "GHARCH": "amd64" if architecture == "x64" else architecture,
                 "ARCH": architecture,
                 "DIGEST": digest,
             }.items():
@@ -87,6 +100,10 @@ Write-Host 'PASS: installed twice with one metadata request'
             encoded = base64.b64encode(harness.encode("utf-16-le")).decode("ascii")
             result = subprocess.run(
                 [PWSH, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                env={
+                    key: value for key, value in os.environ.items()
+                    if key.lower() != "psmodulepath"
+                },
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -109,8 +126,14 @@ Write-Host 'PASS: installed twice with one metadata request'
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS: installed twice", result.stdout)
 
+    def test_github_cli_archive_applies_and_is_idempotent(self):
+        result = self.run_install("githubCli")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS: installed twice", result.stdout)
+        self.assertIn("PATH", result.stdout)
+
     def test_checksum_failure_never_installs(self):
-        for tool in ("node", "powershell"):
+        for tool in ("node", "powershell", "githubCli"):
             with self.subTest(tool=tool):
                 result = self.run_install(tool, bad_hash=True)
                 self.assertNotEqual(result.returncode, 0)

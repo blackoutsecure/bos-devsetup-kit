@@ -8,6 +8,7 @@
         "install": {
             "homebrew": true,
             "git": true,
+            "githubCli": true,
             "node": true,
             "prettier": true,
             "python": true,
@@ -252,6 +253,21 @@
                     "helper": "manager"
                 }
             }
+        },
+        "githubCli": {
+            "homebrewFormula": "gh",
+            "wingetPackageId": "GitHub.cli",
+            "portableInstallDir": "%LOCALAPPDATA%\\Programs\\GitHub CLI",
+            "portableReleaseApiUrl": "https://api.github.com/repos/cli/cli/releases/latest",
+            "windowsSearchPaths": [
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\gh.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\bin\\gh.exe",
+                "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\{wingetPackageId}_*\\*\\bin\\gh.exe",
+                "%LOCALAPPDATA%\\Programs\\GitHub CLI\\gh.exe",
+                "%LOCALAPPDATA%\\Programs\\GitHub CLI\\bin\\gh.exe",
+                "%ProgramFiles%\\GitHub CLI\\gh.exe",
+                "%ProgramFiles%\\GitHub CLI\\bin\\gh.exe"
+            ]
         },
         "python": {
             "wingetPackageId": "Python.Python.{version}",

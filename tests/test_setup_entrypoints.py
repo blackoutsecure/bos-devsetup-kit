@@ -13,6 +13,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SetupEntrypointTests(unittest.TestCase):
+    def test_github_cli_is_wired_in_all_modes_without_admin_controls(self):
+        config = json.loads((ROOT / "config" / "dev-setup.config.json").read_text())
+        self.assertTrue(config["user"]["install"]["githubCli"])
+        self.assertEqual(config["advanced"]["githubCli"]["homebrewFormula"], "gh")
+        self.assertEqual(config["advanced"]["githubCli"]["wingetPackageId"], "GitHub.cli")
+        for name, installer in (
+            ("setup.ps1", "install-github-cli.ps1"),
+            ("setup.sh", "install-github-cli.sh"),
+        ):
+            text = (ROOT / name).read_text()
+            self.assertEqual(text.count(installer), 3)
+            self.assertIn("user.install.githubCli is false", text)
+            self.assertNotIn("AllowAdminInstall", text)
+        installer = (ROOT / "src" / "scripts" / "install-github-cli.ps1").read_text()
+        self.assertIn("-FallbackInstall", installer)
+        self.assertIn("-Tool githubCli", installer)
+
     def test_disposable_profile_audit_apply_and_second_run(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             sandbox = Path(temp_dir)
