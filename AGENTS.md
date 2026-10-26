@@ -179,11 +179,11 @@ These apply to every repository in the `blackoutsecure` organization.
 
 ### Branch model
 
-- `dev` is the default branch and where all work lands.
-- `main` is the promoted stable runtime that consumers reference through `@main`.
-- Version tags (`vX.Y.Z` and a floating `vX`) point at promoted runtime commits.
-- Promotion is driven from `bos-automation-hub`. Do not push directly to `main` and do not
-  move tags by hand.
+- `main` is the default and only long-lived branch.
+- Create short-lived feature branches from `main` and land changes through pull requests.
+  Preserve required checks and reviews; a permanent `dev` branch is not needed.
+- Keep existing version tags and configured release automation. Do not push directly to
+  `main` or move tags by hand.
 
 ### Centrally managed files - do not hand-edit here
 
@@ -233,4 +233,5 @@ This repository is **not** wired to it. There is no `.github/workflows/` directo
 - Never print, log, or write a private key, passphrase, or archive password to `DEVSETUP_STATUS_LOG`, a status line, or any file outside the encrypted export archive.
 - Never call `sudo`, require admin rights, launch a GUI installer, or prompt for a password in a path a non-interactive run can reach.
 - Never weaken a check to make something work: do not drop `set -euo pipefail`, add a blanket `shellcheck disable`, or swallow a non-zero exit to get a clean run.
-- Never push directly to `main` or move a version tag by hand; promotion runs from the hub.
+- Never push directly to `main` or move a version tag by hand; use reviewed pull requests
+  and configured release automation.
