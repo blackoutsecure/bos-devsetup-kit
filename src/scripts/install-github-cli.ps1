@@ -8,6 +8,7 @@ param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 $packageId = Get-DevSetupValue $config "advanced.githubCli.wingetPackageId" "GitHub.cli"
 

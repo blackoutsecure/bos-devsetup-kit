@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -7,7 +8,7 @@ import unittest
 import subprocess
 import sqlite3
 from pathlib import Path
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "configure-vscode.py"
@@ -312,6 +313,24 @@ class DefaultSettingsTests(unittest.TestCase):
                 self.assertEqual(len(extensions), len(normalized))
                 self.assertFalse(normalized & blocked)
 
+    def test_extension_update_checks_are_enabled_and_can_be_overridden(self):
+        for key in ("extensions.autoCheckUpdates", "extensions.autoUpdate"):
+            with self.subTest(setting=key):
+                self.assertTrue(self.settings()[key])
+                self.config["user"]["vscode"]["settings"][key] = False
+                self.assertFalse(self.settings()[key])
+
+    def test_local_mcp_launchers_use_reviewed_pins_without_interactive_npm_prompts(self):
+        servers = self.config["user"]["mcp"]["servers"]
+        self.assertEqual(
+            servers["microsoft/playwright-mcp"],
+            {"type": "stdio", "command": "npx", "args": ["--yes", "@playwright/mcp@0.0.83"]},
+        )
+        self.assertEqual(
+            servers["microsoft/markitdown"],
+            {"type": "stdio", "command": "uvx", "args": ["markitdown-mcp@0.0.1a8"]},
+        )
+
     def test_baseline_keeps_terminals_visible_and_voice_disabled(self):
         settings = self.settings()
         self.assertEqual(settings["chat.requestQueuing.defaultAction"], "queue")
@@ -563,6 +582,188 @@ class ExtensionManagementTests(unittest.TestCase):
             self.assertEqual(
                 {call.args[0] for call in report.call_args_list}, {"found", "skip"}
             )
+
+
+class McpPluginSupportAuditTests(unittest.TestCase):
+    def test_launcher_and_pin_review_does_not_expose_credentials_or_start_servers(self):
+        secret = "support-audit-secret-value"
+        expected = {
+            "local": {"type": "stdio", "command": "npx", "args": ["example@2.0.0"]},
+        }
+        servers = {
+            "local": {
+                "type": "stdio", "command": "npx", "args": ["example@1.0.0"],
+                "env": {"TOKEN": secret},
+            },
+            "remote": {
+                "type": "http", "url": f"https://user:{secret}@example.test/private",
+                "headers": {"Authorization": secret},
+            },
+        }
+        before = json.dumps(servers)
+        with (
+            patch("configure_vscode.shutil.which", return_value=None),
+            patch("configure_vscode.run_cli") as run,
+            patch("configure_vscode.status") as report,
+        ):
+            configure_vscode.audit_mcp_support(servers, expected, "test")
+            run.assert_not_called()
+        details = "\n".join(call.args[2] for call in report.call_args_list)
+        self.assertNotIn(secret, details)
+        self.assertNotIn("example.test", details)
+        self.assertIn("launcher unavailable", details)
+        self.assertIn("existing pin/customization preserved", details)
+        self.assertIn("authentication/connectivity not tested", details)
+        self.assertEqual(json.dumps(servers), before)
+
+    def test_invalid_server_shapes_fail_explicitly(self):
+        invalid = (
+            [],
+            {"server": []},
+            {"server": {"type": "stdio", "command": "", "args": []}},
+            {"server": {"type": "stdio", "command": "npx", "args": "invalid"}},
+            {"server": {"type": "stdio", "command": "npx", "args": [42]}},
+            {"server": {"type": "http"}},
+        )
+        for servers in invalid:
+            with self.subTest(servers=servers), patch("configure_vscode.status"):
+                with self.assertRaises(SystemExit):
+                    configure_vscode.audit_mcp_support(servers, {}, "test")
+
+    def test_plugin_inventory_preserves_disabled_state_and_redacts_sources(self):
+        plugins = [
+            {"name": "workiq", "version": "2.0.2", "enabled": True,
+             "marketplace": "copilot-plugins", "source": "private-source-secret"},
+            {"name": "browser-use", "version": "0.0.4", "enabled": False},
+            {"name": "winui", "version": "0.5.0", "enabled": True,
+             "marketplace": "win-dev-skills"},
+        ]
+        with (
+            patch("configure_vscode.shutil.which", return_value="copilot"),
+            patch("configure_vscode.run_cli", side_effect=[
+                (0, json.dumps(plugins)),
+                (0, '[{"name":"copilot-plugins","source":"private-source-secret"}]'),
+            ]) as run,
+            patch("configure_vscode.status") as report,
+        ):
+            configure_vscode.audit_plugin_support()
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(
+                run.call_args_list[0].args,
+                ("copilot", "plugin", "list", "--json"),
+            )
+            self.assertEqual(run.call_args_list[1].args,
+                             ("copilot", "plugin", "marketplace", "list", "--json"))
+            self.assertTrue(all(call.kwargs["redact_output"] for call in run.call_args_list))
+        details = "\n".join(call.args[2] for call in report.call_args_list)
+        self.assertIn("workiq@copilot-plugins 2.0.2: enabled", details)
+        self.assertIn("disabled; left disabled", details)
+        self.assertNotIn("private-source-secret", details)
+        self.assertIn("caches are not modified", details)
+        self.assertIn("win-dev-skills: installed plugin marketplace is not registered", details)
+
+    def test_marketplace_inventory_errors_are_explicit_and_redacted(self):
+        plugins = [{"name": "example", "version": "1.0.0", "enabled": True,
+                    "marketplace": "example-marketplace"}]
+        for result in ((1, "secret-output"), (0, "secret-output"), (0, "{}")):
+            with self.subTest(result=result), patch(
+                "configure_vscode.shutil.which", return_value="copilot"
+            ), patch("configure_vscode.run_cli", side_effect=[(0, json.dumps(plugins)), result]), patch(
+                "configure_vscode.status"
+            ):
+                with self.assertRaises(SystemExit) as error:
+                    configure_vscode.audit_plugin_support()
+                self.assertNotIn("secret-output", str(error.exception))
+
+    def test_missing_plugin_cli_is_skipped_not_installed(self):
+        with (
+            patch("configure_vscode.shutil.which", return_value=None),
+            patch("configure_vscode.run_cli") as run,
+            patch("configure_vscode.status") as report,
+        ):
+            configure_vscode.audit_plugin_support()
+            run.assert_not_called()
+            self.assertEqual(report.call_args.args[0], "skip")
+
+    def test_plugin_inventory_failures_do_not_print_command_output(self):
+        cases = (
+            (1, "private-output-secret"),
+            (0, "private-output-secret"),
+            (0, '{"unexpected": "private-output-secret"}'),
+            (0, '[{"name":"private/output/secret","version":"1.0.0","enabled":true}]'),
+            (0, '[{"name":"example","version":"private/output/secret","enabled":true}]'),
+        )
+        for result in cases:
+            with self.subTest(result=result), patch(
+                "configure_vscode.shutil.which", return_value="copilot"
+            ), patch("configure_vscode.run_cli", return_value=result):
+                output = io.StringIO()
+                with redirect_stdout(output), self.assertRaises(SystemExit) as error:
+                    configure_vscode.audit_plugin_support()
+                self.assertNotIn("private", output.getvalue())
+                self.assertNotIn("private-output-secret", str(error.exception))
+
+    def test_redacted_timeout_does_not_echo_partial_plugin_output(self):
+        error = subprocess.TimeoutExpired(
+            ["copilot", "plugin", "list", "--json"], 120,
+            output="partial-secret-output", stderr="partial-secret-error",
+        )
+        output = io.StringIO()
+        with patch("configure_vscode.subprocess.run", side_effect=error), redirect_stdout(output):
+            with self.assertRaises(SystemExit):
+                configure_vscode.run_cli(
+                    "copilot", "plugin", "list", "--json", redact_output=True
+                )
+        self.assertEqual(output.getvalue(), "")
+
+    def test_support_mode_is_read_only_and_never_calls_setup_managers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            user = root / "profile"
+            user.mkdir()
+            server = {"local": {"type": "stdio", "command": "npx", "args": ["example@1.0.0"]}}
+            (user / "mcp.json").write_text(json.dumps({"servers": server}))
+            copilot = root / "copilot-mcp.json"
+            copilot.write_text(json.dumps({"mcpServers": server}))
+            config = root / "config.json"
+            config.write_text(json.dumps({"user": {"mcp": {"servers": server}}}))
+            before = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                      for path in root.iterdir() if path.is_file()}
+            before[user / "mcp.json"] = ((user / "mcp.json").read_bytes(),
+                                         (user / "mcp.json").stat().st_mtime_ns)
+            with (
+                patch.object(sys, "argv", [str(SOURCE), "--config", str(config), "--support-audit"]),
+                patch("configure_vscode.profile_targets", return_value=[("test", user)]),
+                patch("configure_vscode.copilot_mcp_config_path", return_value=copilot),
+                patch("configure_vscode.enforce_execution_mode") as enforce,
+                patch("configure_vscode.shutil.which", return_value="available"),
+                patch("configure_vscode.run_cli", return_value=(0, "[]")) as run,
+                patch("configure_vscode.apply") as apply,
+                patch("configure_vscode.manage_mcp") as manage,
+                patch("configure_vscode.sync_settings") as sync,
+                patch("configure_vscode.status"),
+            ):
+                self.assertEqual(configure_vscode.main(), 0)
+                enforce.assert_called_once_with(True)
+                run.assert_called_once_with(
+                    "available", "plugin", "list", "--json", redact_output=True,
+                )
+                apply.assert_not_called()
+                manage.assert_not_called()
+                sync.assert_not_called()
+            for path, snapshot in before.items():
+                self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), snapshot)
+
+    def test_support_audit_rejects_migration_modes(self):
+        for option in (["--copilot-chat-migration"],
+                       ["--agent-customization-migration", "stable"]):
+            with self.subTest(option=option), patch.object(
+                sys, "argv", [str(SOURCE), "--support-audit", *option]
+            ), patch("configure_vscode.load_json") as load:
+                with self.assertRaises(SystemExit) as error:
+                    configure_vscode.main()
+                self.assertEqual(error.exception.code, 2)
+                load.assert_not_called()
 
 
 class SettingsSyncTests(unittest.TestCase):

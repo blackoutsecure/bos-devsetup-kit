@@ -16,6 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 
 if (-not $PythonVersion) {
@@ -89,7 +90,7 @@ if (-not $pythonExe) {
     $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
     if ($wingetCommand) {
         Write-DevSetupStatus install "Python" "installing $wingetPackageId via winget (per-user, no admin, no GUI)"
-        & winget.exe install --id $wingetPackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent
+        & winget.exe install --id $wingetPackageId -e --scope user --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
         if ($LASTEXITCODE -eq 0) {
             $installed = Get-ChildItem (Join-Path $installRoot $versionGlob) -Recurse -Filter python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($installed) {

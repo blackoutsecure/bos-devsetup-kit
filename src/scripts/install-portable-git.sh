@@ -32,6 +32,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 if [[ $uninstall -eq 1 ]]; then
 	# Uninstall would also need to unwind global credential/identity config this
 	# script wrote, which isn't safe to automate. Leave Git out of --uninstall.
@@ -85,7 +87,7 @@ if [[ $git_present -eq 0 ]]; then
 				printf 'Git is unavailable and Homebrew could not be installed.\n' >&2
 				exit 1
 			fi
-			NONINTERACTIVE=1 brew install "$formula" < /dev/null
+			NONINTERACTIVE=1 brew install --formula "$formula" < /dev/null
 			devsetup_status found Git "$(git --version) at $(command -v git)"
 			;;
 		*)

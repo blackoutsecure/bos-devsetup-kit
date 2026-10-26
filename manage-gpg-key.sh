@@ -41,6 +41,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 random_secret() {
 	# 24 url-safe base64 characters.
 	head -c 24 /dev/urandom | base64 | tr -d '+/=\n' | head -c 24

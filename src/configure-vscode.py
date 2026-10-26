@@ -84,6 +84,39 @@ def get(config: dict, key: str, default: Any = None) -> Any:
     return node
 
 
+def is_elevated() -> bool:
+    if os.name == "nt":
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    return os.geteuid() == 0
+
+
+def enforce_execution_mode(dry_run: bool) -> None:
+    admin_mode = os.environ.get("DEVSETUP_ADMIN_MODE") or "0"
+    if admin_mode not in ("0", "1"):
+        raise SystemExit(
+            "DEVSETUP_ADMIN_MODE must be 0 (standard user, the default) "
+            "or 1 (explicit admin opt-in)."
+        )
+    if not is_elevated():
+        return
+    if dry_run:
+        status("warn", "Execution mode", "elevated read-only inspection; no configuration changes")
+    elif admin_mode == "1":
+        status(
+            "warn", "Execution mode",
+            "explicit admin mode enabled; child processes inherit elevation; "
+            "configuration scope remains per-user",
+        )
+    else:
+        raise SystemExit(
+            "Run this script from a standard, non-admin shell. To explicitly permit "
+            "an already-elevated shell for this run, set DEVSETUP_ADMIN_MODE=1. "
+            "No automatic elevation or de-elevation is performed."
+        )
+
+
 def strip_jsonc(text: str) -> str:
     """Drop // and /* */ comments and trailing commas, ignoring string literals."""
     out: list[str] = []
@@ -326,16 +359,18 @@ def assert_no_overlap(wanted, blocked, kind: str, setting: str) -> None:
 
 
 def run_cli(
-    cli: str, *args: str, timeout: int = 120, capture_output: bool = True
+    cli: str, *args: str, timeout: int = 120, capture_output: bool = True,
+    redact_output: bool = False,
 ) -> tuple[int, str]:
     try:
         result = subprocess.run(
             [cli, *args], capture_output=capture_output, text=True, check=False, timeout=timeout
         )
     except subprocess.TimeoutExpired as exc:
-        for output in (exc.stdout, exc.stderr):
-            if output:
-                print(output.decode(errors="replace") if isinstance(output, bytes) else output)
+        if not redact_output:
+            for output in (exc.stdout, exc.stderr):
+                if output:
+                    print(output.decode(errors="replace") if isinstance(output, bytes) else output)
         raise SystemExit(
             f"VS Code CLI exceeded {timeout}s: {cli} {' '.join(args)}. "
             "The CLI was stopped; VS Code was not closed. Check the terminal "
@@ -1197,6 +1232,146 @@ def manage_mcp(config: dict, dry_run: bool) -> None:
             write_json(path, current)
 
 
+def audit_mcp_support(servers: dict, expected: dict, label: str) -> None:
+    if not isinstance(expected, dict) or not isinstance(servers, dict):
+        raise SystemExit(f"MCP support audit requires a server object ({label}).")
+    status("found", "support", f"{label}: {len(servers)} configured MCP definition(s)")
+    for name, definition in servers.items():
+        if not isinstance(definition, dict):
+            raise SystemExit(f"Invalid MCP definition for {name} ({label}).")
+        kind = definition.get("type", "stdio" if "command" in definition else "")
+        if kind == "stdio":
+            command = definition.get("command")
+            arguments = definition.get("args", [])
+            if not isinstance(command, str) or not command or not isinstance(arguments, list):
+                raise SystemExit(f"Invalid stdio MCP definition for {name} ({label}).")
+            if not all(isinstance(argument, str) for argument in arguments):
+                raise SystemExit(f"MCP arguments must be strings for {name} ({label}).")
+            if shutil.which(os.path.expandvars(command)):
+                status("found", "support", f"{name} ({label}): launcher available; server not started")
+            else:
+                status("warn", "support", f"{name} ({label}): launcher unavailable; no automatic installation")
+        elif kind in ("http", "sse"):
+            if not isinstance(definition.get("url"), str) or not definition["url"]:
+                raise SystemExit(f"Missing MCP URL for {name} ({label}).")
+            status("found", "support", f"{name} ({label}): remote definition; authentication/connectivity not tested")
+        else:
+            status("warn", "support", f"{name} ({label}): unsupported transport; review in its owning host")
+        baseline = expected.get(name)
+        if isinstance(baseline, dict) and any(
+            definition.get(field) != baseline.get(field)
+            for field in ("type", "command", "args", "url")
+            if field in baseline
+        ):
+            status(
+                "warn", "support",
+                f"{name} ({label}): differs from kit baseline; existing pin/customization preserved",
+            )
+    for name in missing_mcp_servers(expected, servers):
+        status("warn", "support", f"{name} ({label}): kit baseline definition is absent")
+
+
+def audit_plugin_support() -> None:
+    cli = shutil.which("copilot")
+    if not cli:
+        status("skip", "plugins", "Copilot CLI unavailable; inspect Agent Plugins in VS Code")
+        return
+    code, output = run_cli(cli, "plugin", "list", "--json", redact_output=True)
+    if code != 0:
+        raise SystemExit(
+            "Copilot plugin inventory failed; use the installed client's plugin manager. "
+            "Command output withheld because it can contain local configuration."
+        )
+    try:
+        plugins = json.loads(output)
+    except json.JSONDecodeError:
+        raise SystemExit("Copilot plugin inventory did not return valid JSON; output withheld.") from None
+    if not isinstance(plugins, list):
+        raise SystemExit("Copilot plugin inventory must return an array.")
+    enabled_count = 0
+    marketplaces = set()
+    for plugin in plugins:
+        if (
+            not isinstance(plugin, dict)
+            or not isinstance(plugin.get("name"), str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+", plugin["name"])
+            or not isinstance(plugin.get("enabled"), bool)
+            or not isinstance(plugin.get("version"), str)
+            or not re.fullmatch(r"[A-Za-z0-9_.+-]+", plugin["version"])
+            or (
+                plugin.get("marketplace") is not None
+                and (
+                    not isinstance(plugin["marketplace"], str)
+                    or not re.fullmatch(r"[A-Za-z0-9_.-]*", plugin["marketplace"])
+                )
+            )
+        ):
+            raise SystemExit("Copilot plugin inventory contains invalid identity/version metadata; details withheld.")
+        enabled_count += plugin["enabled"]
+        if plugin.get("marketplace"):
+            marketplaces.add(plugin["marketplace"])
+        identity = plugin["name"] + (f"@{plugin['marketplace']}" if plugin.get("marketplace") else "")
+        status(
+            "found", "plugins",
+            f"{identity} {plugin['version']}: "
+            f"{'enabled' if plugin['enabled'] else 'disabled; left disabled'}",
+        )
+    if marketplaces:
+        code, output = run_cli(
+            cli, "plugin", "marketplace", "list", "--json", redact_output=True
+        )
+        if code != 0:
+            raise SystemExit("Copilot marketplace inventory failed; command output withheld.")
+        try:
+            catalogues = json.loads(output)
+        except json.JSONDecodeError:
+            raise SystemExit("Copilot marketplace inventory did not return valid JSON; output withheld.") from None
+        if not isinstance(catalogues, list) or any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+", item["name"])
+            for item in catalogues
+        ):
+            raise SystemExit("Copilot marketplace inventory contains invalid metadata; details withheld.")
+        registered = {item["name"] for item in catalogues}
+        for marketplace in sorted(marketplaces - registered):
+            status(
+                "warn", "plugins",
+                f"{marketplace}: installed plugin marketplace is not registered; "
+                "updates may be blocked; restore its reviewed source in the owning host",
+            )
+    status("found", "plugins", f"{len(plugins)} CLI-listed plugin(s), {enabled_count} enabled; not a VS Code cache count")
+    status(
+        "skip", "plugins",
+        "provider-owned/synced caches are not modified; check VS Code Agent Customizations "
+        "separately; no plugin updates or trust changes performed",
+    )
+
+
+def audit_support(config: dict) -> int:
+    for profile, directory in profile_targets(config):
+        if not directory.is_dir():
+            status("skip", "support", f"{profile}: VS Code profile unavailable")
+            continue
+        filename = get(config, "advanced.vscode.mcpFileName", "mcp.json")
+        validate_profile_filename(filename, "advanced.vscode.mcpFileName")
+        current = load_json(directory / filename)
+        servers = current.get("servers", {})
+        expected = profile_mcp_servers(get(config, "user.mcp.servers", {}), directory)
+        audit_mcp_support(servers, expected, profile)
+    path = copilot_mcp_config_path()
+    audit_mcp_support(
+        current_copilot_mcp_servers(load_json(path), path), copilot_mcp_servers(config), "Copilot"
+    )
+    audit_plugin_support()
+    status(
+        "skip", "support",
+        "read-only inventory only: no server tools, network/auth probes, updates, "
+        "trust grants, migrations or restarts",
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
@@ -1209,6 +1384,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="report changes without writing files"
+    )
+    parser.add_argument(
+        "--support-audit", action="store_true",
+        help="read-only MCP definitions/launcher and Copilot plugin inventory; "
+        "redacts server credentials and does not start servers or update plugins",
     )
     parser.add_argument(
         "--copilot-chat-migration", action="store_true",
@@ -1227,13 +1407,18 @@ def main() -> int:
         help="skip the final Settings Sync request for this run without changing sync preferences",
     )
     args = parser.parse_args()
+    if sum(bool(mode) for mode in (
+        args.support_audit, args.copilot_chat_migration, args.agent_customization_migration
+    )) > 1:
+        parser.error("choose support audit, session-sync preparation or customization migration, not multiple modes")
+    enforce_execution_mode(args.dry_run or args.support_audit)
 
     config = load_json(args.config)
     if not config:
         print(f"Config not found at {args.config}; using built-in defaults.")
 
-    if args.copilot_chat_migration and args.agent_customization_migration:
-        parser.error("choose session-sync preparation or customization migration, not both")
+    if args.support_audit:
+        return audit_support(config)
     if args.agent_customization_migration:
         return migrate_agent_customizations(
             config, args.agent_customization_migration, args.dry_run

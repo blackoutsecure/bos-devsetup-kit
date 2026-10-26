@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 
 if (-not $NodePackage) {

@@ -32,6 +32,49 @@ if [[ -z "$DEVSETUP_READER" ]] && command -v jq >/dev/null 2>&1; then
 fi
 unset _devsetup_candidate
 
+devsetup_is_elevated() {
+	[[ "$EUID" -eq 0 ]]
+}
+
+devsetup_assert_execution_mode() {
+	local read_only="${1:-0}" admin_mode="${DEVSETUP_ADMIN_MODE:-0}"
+	case "$admin_mode" in
+		0|1) ;;
+		*)
+			printf 'DEVSETUP_ADMIN_MODE must be 0 (standard user, the default) or 1 (explicit admin opt-in).\n' >&2
+			return 2
+			;;
+	esac
+	if ! devsetup_is_elevated; then return 0; fi
+	if [[ "$read_only" -eq 1 ]]; then
+		devsetup_status warn "Execution mode" "root read-only inspection; run write operations from a standard, non-root shell" >&2
+	elif [[ "$admin_mode" == 1 ]]; then
+		devsetup_status warn "Execution mode" "explicit admin mode enabled; child processes inherit root; installation scope remains per-user" >&2
+	else
+		printf 'Run this script from a standard, non-root shell. To explicitly permit an already-root shell for this run, set DEVSETUP_ADMIN_MODE=1. No automatic elevation or de-elevation is performed.\n' >&2
+		return 1
+	fi
+}
+
+devsetup_assert_homebrew_write() {
+	local prefix home_root
+	if devsetup_is_elevated; then
+		printf 'Homebrew does not support root execution, even with DEVSETUP_ADMIN_MODE=1. Use a standard user.\n' >&2
+		return 1
+	fi
+	prefix="$(brew --prefix)" || return 1
+	prefix="$(cd "$prefix" && pwd -P)" || return 1
+	home_root="$(cd "$HOME" && pwd -P)" || return 1
+	if [[ "${DEVSETUP_ADMIN_MODE:-0}" == 1 ]]; then return 0; fi
+	case "$prefix" in
+		"$home_root"/*) ;;
+		*)
+			devsetup_status warn Homebrew "refusing to modify shared prefix $prefix in standard-user mode; use user-local Homebrew or explicitly opt in with DEVSETUP_ADMIN_MODE=1 from a permitted non-root account" >&2
+			return 1
+			;;
+	esac
+}
+
 devsetup_config_reader() {
 	[[ -n "$DEVSETUP_READER" ]] || return 1
 	printf '%s' "$DEVSETUP_READER"
@@ -69,11 +112,12 @@ for segment in key.split("."):
 if node is None:
     sys.exit(1)
 if isinstance(node, bool):
-    print("true" if node else "false")
+    value = "true" if node else "false"
 elif isinstance(node, list):
-    print("\n".join(str(item) for item in node))
+    value = "\n".join(str(item) for item in node)
 else:
-    print(node)
+    value = str(node)
+sys.stdout.buffer.write((value + "\n").encode("utf-8"))
 ' "$DEVSETUP_CONFIG_FILE" "$key" 2>/dev/null)" || value=""
 	fi
 
@@ -82,6 +126,43 @@ else:
 		printf '%s' "$default"
 	else
 		printf '%s' "$value"
+	fi
+}
+
+devsetup_config_list() {
+	local key="$1" default="${2-}"
+	if [[ ! -f "$DEVSETUP_CONFIG_FILE" || -z "$DEVSETUP_READER" ]]; then
+		[[ -z "$default" ]] || printf '%s\n' "$default"
+		return 0
+	fi
+	if [[ "$DEVSETUP_READER" == jq ]]; then
+		jq -r --arg key "$key" --arg fallback "$default" '
+			reduce ($key | split(".")[]) as $part (.; if type == "object" then .[$part] else null end)
+			| if . == null or . == "" then ($fallback | split("\n") | map(select(. != ""))) else . end
+			| if type != "array" then error($key + " must be an array of non-empty strings")
+			  elif any(.[]; if type == "string" then (test("^[[:space:]]*$") or test("[\r\n]")) else true end)
+			  then error($key + " must contain non-empty, single-line strings")
+			  else reduce .[] as $item ([]; if index($item) == null then . + [$item] else . end) | .[] end
+		' "$DEVSETUP_CONFIG_FILE" | tr -d '\r'
+	else
+		"$DEVSETUP_READER" -c '
+import json, sys
+path, key, fallback = sys.argv[1:]
+with open(path, encoding="utf-8-sig") as handle:
+    node = json.load(handle)
+for segment in key.split("."):
+    node = node.get(segment) if isinstance(node, dict) else None
+if node is None or node == "":
+    node = fallback.splitlines()
+if not isinstance(node, list) or any(
+    not isinstance(item, str) or not item.strip() or "\n" in item or "\r" in item
+    for item in node
+):
+    raise SystemExit(key + " must be an array of non-empty, single-line strings")
+value = "\n".join(dict.fromkeys(node))
+if value:
+    sys.stdout.buffer.write((value + "\n").encode("utf-8"))
+' "$DEVSETUP_CONFIG_FILE" "$key" "$default"
 	fi
 }
 
@@ -135,8 +216,13 @@ devsetup_persist_homebrew_shellenv() {
 
 devsetup_ensure_homebrew() {
 	local archive_url brew_path parent prefix stage
+	if devsetup_is_elevated; then
+		printf 'Homebrew does not support root execution, even with DEVSETUP_ADMIN_MODE=1. Use a standard user.\n' >&2
+		return 1
+	fi
 	if devsetup_activate_homebrew; then
-		return 0
+		devsetup_assert_homebrew_write
+		return $?
 	fi
 	case "$(uname -s 2>/dev/null)" in
 		Darwin|Linux) ;;
@@ -225,7 +311,7 @@ devsetup_install_via_homebrew() {
 			return 1
 		fi
 		devsetup_status install "$component" "installing '$formula' via Homebrew (live output below, may take a few minutes)" >&2
-		NONINTERACTIVE=1 brew install "$formula" < /dev/null >&2
+		NONINTERACTIVE=1 brew install --formula "$formula" < /dev/null >&2
 		command_path="$(command -v "$command_name" || true)"
 	fi
 
@@ -283,6 +369,7 @@ devsetup_uninstall_via_homebrew() {
 		devsetup_status remove "$component" "would uninstall '$formula' via Homebrew"
 		return 0
 	fi
+	devsetup_assert_homebrew_write || return 1
 	if brew uninstall --formula "$formula" >/dev/null 2>&1; then
 		devsetup_status remove "$component" "uninstalled '$formula' via Homebrew"
 	else
@@ -338,6 +425,7 @@ devsetup_status() {
 # would change, and gives the exact command.
 devsetup_summary() {
 	local log_path="${1:-}" audit="${2:-0}" found=0 install=0 skip=0 warn=0 update=0 remove=0
+	local apply_command="${3:-./setup.sh}"
 	local warn_label install_label summary_line update_label
 	if [[ -n "$log_path" && -f "$log_path" ]]; then
 		found="$(grep -c '^found|' "$log_path" || true)"
@@ -372,7 +460,7 @@ devsetup_summary() {
 			grep '^install|' "$log_path" | while IFS='|' read -r _ component detail; do
 				echo "  - ${component}: ${detail}"
 			done
-			echo "Run this to apply them: ./setup.sh"
+			echo "Run this to apply them: $apply_command"
 		fi
 		if [[ "$warn" -gt 0 ]]; then
 			echo "$warn item(s) need attention regardless (see [warn] lines above)."

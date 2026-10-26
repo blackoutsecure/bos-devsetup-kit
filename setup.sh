@@ -22,6 +22,8 @@ uninstall=0
 check_upgrades_only=0
 skip_upgrade_check=0
 skip_settings_sync=0
+upgrade_powershell=0
+upgrade_rust=0
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--audit) audit=1 ;;
@@ -29,10 +31,21 @@ while [[ $# -gt 0 ]]; do
 		--check-upgrades-only) check_upgrades_only=1 ;;
 		--skip-upgrade-check) skip_upgrade_check=1 ;;
 		--skip-settings-sync) skip_settings_sync=1 ;;
+		--upgrade-powershell) upgrade_powershell=1 ;;
+		--upgrade-rust) upgrade_rust=1 ;;
 		*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 	shift
 done
+
+if [[ $uninstall -eq 1 && $upgrade_powershell -eq 1 ]]; then
+	printf '%s\n' '--uninstall and --upgrade-powershell cannot be combined.' >&2
+	exit 2
+fi
+if [[ $uninstall -eq 1 && $upgrade_rust -eq 1 ]]; then
+	printf '%s\n' '--uninstall and --upgrade-rust cannot be combined.' >&2
+	exit 2
+fi
 
 os="$(uname -s 2>/dev/null || printf '%s' "${MSYSTEM:-Windows}")"
 case "$os" in
@@ -47,10 +60,7 @@ case "$os" in
 		;;
 esac
 
-if [[ "$EUID" -eq 0 && "$audit" -eq 0 ]]; then
-	printf 'Run setup as a non-root user with a writable HOME. Do not use sudo. Use --audit for root-only inspection.\n' >&2
-	exit 1
-fi
+devsetup_assert_execution_mode "$((audit || (check_upgrades_only && !uninstall)))"
 
 check_upgrades=1
 if [[ $check_upgrades_only -eq 0 ]]; then
@@ -174,7 +184,9 @@ else
 fi
 
 if devsetup_enabled user.install.rust; then
-	"${BASH:-bash}" "$scripts/install-rust.sh" $audit_flag $upgrade_flag
+	rust_upgrade_flag=""
+	[[ $upgrade_rust -eq 1 ]] && rust_upgrade_flag="--upgrade"
+	"${BASH:-bash}" "$scripts/install-rust.sh" $audit_flag $upgrade_flag $rust_upgrade_flag
 else
 	devsetup_status skip Rust "user.install.rust is false"
 fi
@@ -192,10 +204,12 @@ fi
 
 powershell_command=""
 if devsetup_enabled user.install.powershell; then
+	powershell_flags=()
+	[[ $upgrade_powershell -eq 1 ]] && powershell_flags+=(--upgrade)
 	if [[ $audit -eq 1 ]]; then
-		"${BASH:-bash}" "$scripts/install-powershell.sh" --audit $upgrade_flag
+		"${BASH:-bash}" "$scripts/install-powershell.sh" --audit $upgrade_flag "${powershell_flags[@]}"
 	else
-		powershell_command="$("${BASH:-bash}" "$scripts/install-powershell.sh" --print-path $upgrade_flag)"
+		powershell_command="$("${BASH:-bash}" "$scripts/install-powershell.sh" --print-path $upgrade_flag "${powershell_flags[@]}")"
 	fi
 else
 	devsetup_status skip PowerShell "user.install.powershell is false"
@@ -279,4 +293,7 @@ else
 	devsetup_status skip restart "VS Code and terminal sessions remain open. If PATH or extensions need a restart, save your work and reopen VS Code or start a new terminal yourself when ready."
 fi
 
-devsetup_summary "$DEVSETUP_STATUS_LOG" "$audit"
+apply_command="./setup.sh"
+[[ $upgrade_powershell -eq 1 ]] && apply_command="$apply_command --upgrade-powershell"
+[[ $upgrade_rust -eq 1 ]] && apply_command="$apply_command --upgrade-rust"
+devsetup_summary "$DEVSETUP_STATUS_LOG" "$audit" "$apply_command"

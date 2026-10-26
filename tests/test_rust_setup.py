@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POWERSHELL = shutil.which("powershell") if os.name == "nt" else None
 BASH = shutil.which("bash")
+if os.name == "nt":
+    git = shutil.which("git")
+    git_bash = Path(git).parent.parent / "bin" / "bash.exe" if git else None
+    BASH = str(git_bash) if git_bash and git_bash.is_file() else None
 
 
 class RustInstallerTests(unittest.TestCase):
@@ -18,8 +23,124 @@ class RustInstallerTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         for name in ("install-rust.ps1", "install-rust.sh"):
             shutil.copyfile(ROOT / "src" / "scripts" / name, scripts / name)
+        for name in ("setup.ps1", "setup.sh"):
+            shutil.copyfile(ROOT / name, root / name)
         (root / "components").write_text("rustfmt-host\n", encoding="utf-8")
+        (root / "targets").write_text("host\n", encoding="utf-8")
+        install = {
+            name: False for name in json.loads(
+                (ROOT / "config" / "dev-setup.config.json").read_text()
+            )["user"]["install"]
+        }
+        install["rust"] = True
+        (root / "config.json").write_text(json.dumps({
+            "user": {
+                "install": install, "checkUpgrades": False,
+                "rust": {"components": ["rustfmt", "clippy", "rust-src"], "targets": []},
+            },
+        }))
         return scripts
+
+    def exercise_component_requests(self, root, run, audit):
+        (root / "fail").unlink(missing_ok=True)
+        config = json.loads((root / "config.json").read_text())
+
+        def request(components, targets):
+            config["user"]["rust"] = {"components": components, "targets": targets}
+            (root / "config.json").write_text(json.dumps(config))
+
+        request(["rustc", "rust-docs", "rust-docs"], ["wasm32-unknown-unknown"])
+        (root / "components").write_text("rustc-dev-host\n")
+        (root / "targets").write_text("host\n")
+        before = (root / "components").read_bytes()
+        output = run(audit)
+        self.assertIn("Rust rustc", output)
+        self.assertIn("would add component", output)
+        self.assertIn("would add wasm32-unknown-unknown", output)
+        self.assertEqual((root / "components").read_bytes(), before)
+        (root / "calls").write_text("")
+        output = run()
+        self.assertIn("Rust rust-docs", output)
+        self.assertEqual((root / "calls").read_text().count("component add --toolchain stable-host rust-docs"), 1)
+        self.assertIn("wasm32-unknown-unknown", (root / "targets").read_text())
+        self.assertNotIn("[install]", run())
+
+        for components, targets, message in (
+            ("clippy", [], "must be an array"),
+            ([42], [], "must be an array"),
+            (["--force"], [], "Invalid Rust"),
+            (["bad\nname"], [], "single-line"),
+            (["miri"], [], "unavailable"),
+            (["rust-src"], ["not-a-target"], "unavailable"),
+        ):
+            with self.subTest(components=components, targets=targets):
+                request(components, targets)
+                (root / "calls").write_text("")
+                self.assertIn(message, run(success=False))
+                calls = (root / "calls").read_text()
+                self.assertNotIn("component add", calls)
+                self.assertNotIn("target add", calls)
+
+        request([], [])
+        self.assertNotIn("Rust rust-docs", run())
+        request(["rust-docs"], [])
+        (root / "components").write_text("rustfmt-host\n")
+        (root / "silent-add").touch()
+        self.assertIn("was not installed", run(success=False))
+        request([], ["wasm32-unknown-unknown"])
+        (root / "targets").write_text("host\n")
+        self.assertIn("was not installed", run(success=False))
+        (root / "silent-add").unlink()
+        request(None, None)
+        self.assertIn("Rust clippy", run(audit))
+        request(["rustfmt"], [])
+        (root / "components").write_text("rustfmt-host\n")
+        (root / "version-failure").touch()
+        self.assertIn("fixture version failure", run(success=False))
+        (root / "version-failure").unlink()
+
+    def exercise_explicit_updates(self, root, run, flags):
+        config = json.loads((root / "config.json").read_text())
+        config["user"]["rust"] = {
+            "components": ["rustfmt", "clippy", "rust-src"], "targets": [],
+        }
+        (root / "config.json").write_text(json.dumps(config))
+        (root / "components").write_text("rustfmt-host\nclippy-host\nrust-src\n")
+        (root / "calls").write_text("")
+        output = run(flags["upgrade"], flags["audit"])
+        self.assertIn("would update stable-host", output)
+        self.assertNotIn("update stable-host", (root / "calls").read_text())
+        output = run(flags["setup_upgrade"], flags["skip_check"], flags["audit"], setup=True)
+        self.assertIn("would update stable-host", output)
+        self.assertIn(flags["setup_upgrade"], output.split("APPLY:")[-1]
+                      if "APPLY:" in output else output.split("Run this to apply them:")[-1])
+        (root / "calls").write_text("")
+        run(flags["setup_upgrade"], flags["check_only"], setup=True)
+        self.assertNotIn("update stable-host", (root / "calls").read_text())
+
+        output = run(flags["setup_upgrade"], flags["skip_check"], setup=True)
+        self.assertIn("updating stable-host", output)
+        calls = (root / "calls").read_text()
+        self.assertIn("update stable-host --no-self-update", calls)
+        self.assertNotIn("self update", calls)
+        self.assertNotIn("default ", calls)
+        (root / "calls").write_text("")
+        self.assertNotIn("[install]", run(flags["upgrade"]))
+        self.assertNotIn("update stable-host", (root / "calls").read_text())
+
+        for marker in ("update-failure", "stale-update", "check-failure"):
+            with self.subTest(marker=marker):
+                (root / "updated").unlink(missing_ok=True)
+                (root / marker).touch()
+                run(flags["upgrade"], success=False)
+                (root / marker).unlink()
+
+        config["user"]["install"]["rust"] = False
+        config["user"]["rust"]["components"] = "ignored-when-disabled"
+        (root / "config.json").write_text(json.dumps(config))
+        self.assertIn("user.install.rust is false", run(flags["setup_upgrade"], setup=True))
+        self.assertIn("cannot be combined",
+                      run(flags["uninstall"], flags["upgrade"], success=False))
 
     @unittest.skipUnless(POWERSHELL, "Windows PowerShell is required")
     def test_windows_bootstrap_verifies_digest_before_execution(self):
@@ -55,6 +176,7 @@ function Invoke-WebRequest {
 }
 function Install-DevSetupWingetTool {
     param($Component, $PackageId, $Find, [switch]$Audit, [switch]$CheckUpgrades, $ManualInstallHint, $FallbackInstall, $FallbackDescription)
+    if ($env:RUSTUP_AUTO_INSTALL -ne '0') { throw 'Bootstrap inspection must not provision project overrides' }
     $result = @(& $FallbackInstall)
     if ($result.Count -ne 1 -or -not (Test-Path $result[0])) { throw 'Bootstrap leaked output instead of returning one executable path' }
     Write-Host 'PASS: verified bootstrap executed'
@@ -141,8 +263,12 @@ Write-Host 'PASS: user PATH unchanged'
             scripts = self.fixture(root)
             (root / "src" / "config.ps1").write_text(r"""
 . 'REAL_MODULE'
+function Get-DevSetupConfig {
+    Get-Content (Join-Path $env:FIXTURE 'config.json') -Raw | ConvertFrom-Json
+}
 function Install-DevSetupWingetTool {
     param($Component, $PackageId, $Find, [switch]$Audit, [switch]$CheckUpgrades, $ManualInstallHint, $FallbackInstall, $FallbackDescription)
+    if ($env:RUSTUP_AUTO_INSTALL -ne '0') { throw 'Manager inspection must not provision project overrides' }
     return (Join-Path $env:FIXTURE 'rustup.ps1')
 }
 function Add-DevSetupUserPath {
@@ -155,7 +281,9 @@ function Update-DevSetupSessionPath {}
             (root / "rustup.ps1").write_text(r"""
 $arguments = @($args)
 Add-Content (Join-Path $env:FIXTURE 'calls') ($arguments -join ' ')
+if ($env:RUSTUP_AUTO_INSTALL -ne '0') { throw 'Inspection must not provision repository overrides' }
 switch ($arguments[0]) {
+    '--version' { 'rustup fixture' }
     'show' {
         if ($env:RUSTUP_AUTO_INSTALL -ne '0') { throw 'Host inspection must not provision repository overrides' }
         'Default host: host'
@@ -173,13 +301,46 @@ switch ($arguments[0]) {
     'component' {
         if ($arguments -notcontains 'stable-host') { throw 'Wrong component host' }
         if (Test-Path (Join-Path $env:FIXTURE 'no-stable')) { throw 'Stable host is missing' }
-        if ($arguments[1] -eq 'list') { Get-Content (Join-Path $env:FIXTURE 'components') }
-        else { Add-Content (Join-Path $env:FIXTURE 'components') $arguments[-1] }
+        if ($arguments[1] -eq 'list') {
+            if ($arguments -contains '--installed') { Get-Content (Join-Path $env:FIXTURE 'components') }
+            else { 'rustfmt-host'; 'clippy-host'; 'rust-src'; 'rust-docs-host'; 'rustc-host'; 'rustc-dev-host' }
+        } elseif (-not (Test-Path (Join-Path $env:FIXTURE 'silent-add'))) {
+            Add-Content (Join-Path $env:FIXTURE 'components') $arguments[-1]
+        }
+    }
+    'target' {
+        if ($arguments -notcontains 'stable-host') { throw 'Wrong target host' }
+        if ($arguments[1] -eq 'list') {
+            if ($arguments -contains '--installed') { Get-Content (Join-Path $env:FIXTURE 'targets') }
+            else { 'host (installed)'; 'wasm32-unknown-unknown' }
+        } elseif (-not (Test-Path (Join-Path $env:FIXTURE 'silent-add'))) {
+            Add-Content (Join-Path $env:FIXTURE 'targets') $arguments[-1]
+        }
+    }
+    'update' {
+        if (($arguments -join ' ') -ne 'update stable-host --no-self-update') { throw 'Unsafe update' }
+        if (Test-Path (Join-Path $env:FIXTURE 'update-failure')) { exit 9 }
+        if (-not (Test-Path (Join-Path $env:FIXTURE 'stale-update'))) {
+            New-Item -ItemType File (Join-Path $env:FIXTURE 'updated') -Force | Out-Null
+        }
     }
     'default' { throw 'Must not replace an existing default' }
     'run' {
         if ($arguments[1] -ne 'stable-host') { throw 'Wrong run host' }
-        if ($arguments[-1] -eq '--version') { "$($arguments[2]) fixture" }
+        if ($arguments[-1] -eq '--version') {
+            if ($arguments[2] -eq 'rustfmt' -and (Test-Path (Join-Path $env:FIXTURE 'version-failure'))) {
+                [Console]::Error.WriteLine('fixture version failure')
+                exit 7
+            }
+            $installedComponents = @(Get-Content (Join-Path $env:FIXTURE 'components'))
+            if ($arguments[2] -eq 'rustfmt' -and $installedComponents -notcontains 'rustfmt-host' -and $installedComponents -notcontains 'rustfmt') {
+                throw 'Rustfmt was inspected before installation'
+            }
+            if ($arguments -contains 'clippy' -and $installedComponents -notcontains 'clippy' -and $installedComponents -notcontains 'clippy-host') {
+                throw 'Clippy was inspected before installation'
+            }
+            "$($arguments[2]) fixture"
+        }
         else {
             if (Test-Path (Join-Path $env:FIXTURE 'fail')) { Write-Output 'fixture linker missing'; exit 1 }
             $destination = $arguments[-1]
@@ -187,7 +348,9 @@ switch ($arguments[0]) {
         }
     }
     'check' {
-        'stable-host - Update available : 1.98 -> 1.99'
+        if (Test-Path (Join-Path $env:FIXTURE 'check-failure')) { exit 8 }
+        if (Test-Path (Join-Path $env:FIXTURE 'updated')) { 'stable-host - Up to date : 1.99.1' }
+        else { 'stable-host - Update available : 1.98.0 -> 1.99.1' }
         'rustup - Up to date : 1.29'
     }
     default { throw "Unexpected command: $arguments" }
@@ -210,14 +373,18 @@ Add-Type -TypeDefinition 'public class Ready { public static void Main() { Syste
             )
             self.assertEqual(built.returncode, 0, built.stderr)
 
-            def run(*args):
+            def run(*args, success=True, setup=False):
+                script = root / "setup.ps1" if setup else scripts / "install-rust.ps1"
                 result = subprocess.run(
                     [POWERSHELL, "-NoProfile", "-NonInteractive", "-File",
-                     str(scripts / "install-rust.ps1"), *args],
-                    env=env, capture_output=True, text=True, timeout=30, check=False,
+                     str(script), *args],
+                    env=env, capture_output=True, text=True, timeout=120, check=False,
                 )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                return result.stdout
+                if success:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result.stdout + result.stderr
 
             original = (root / "components").read_bytes()
             audit = run("-Audit", "-CheckUpgrades")
@@ -227,11 +394,15 @@ Add-Type -TypeDefinition 'public class Ready { public static void Main() { Syste
             self.assertIn("rustup update", audit)
             self.assertIn("update|Rust|", (root / "status.log").read_text())
             self.assertIn("readiness is unverified", audit)
+            self.assertIn("Rust rustfmt version", audit)
+            self.assertNotIn("Rust clippy version", audit)
             self.assertEqual((root / "components").read_bytes(), original)
             calls = (root / "calls").read_text()
             self.assertNotIn("component add", calls)
             self.assertNotIn("probe.rs", calls)
-            self.assertIn("compiled, linked, and ran", run())
+            applied = run()
+            self.assertIn("compiled, linked, and ran", applied)
+            self.assertIn("Rust clippy version", applied)
             second = run()
             self.assertNotIn("[install]", second)
             self.assertNotIn("[warn]", second)
@@ -243,6 +414,12 @@ Add-Type -TypeDefinition 'public class Ready { public static void Main() { Syste
             (root / "fail").touch()
             self.assertIn("native build/run failed", run())
             self.assertIn("preserved", run("-Uninstall"))
+            self.exercise_component_requests(root, run, "-Audit")
+            self.exercise_explicit_updates(root, run, {
+                "audit": "-Audit", "upgrade": "-Upgrade", "setup_upgrade": "-UpgradeRust",
+                "skip_check": "-SkipUpgradeCheck", "check_only": "-CheckUpgradesOnly",
+                "uninstall": "-Uninstall",
+            })
 
     @unittest.skipUnless(BASH, "Bash is required")
     def test_bash_audit_repair_idempotence_and_failure(self):
@@ -250,7 +427,8 @@ Add-Type -TypeDefinition 'public class Ready { public static void Main() { Syste
             root = Path(temp_dir)
             self.fixture(root)
             (root / "src" / "config.sh").write_text("""
-devsetup_config() { printf '%s' "$2"; }
+. "$REAL_CONFIG"
+devsetup_is_elevated() { return 1; }
 devsetup_status() {
     printf '[%s] %s %s\\n' "$1" "$2" "$3"
     printf '%s|%s|%s\\n' "$1" "$2" "$3" >> "$HOME/status.log"
@@ -260,7 +438,9 @@ devsetup_homebrew_path() { return 1; }
             (root / "rustup").write_text("""#!/usr/bin/env bash
 set -eu
 printf '%s\\n' "$*" >> "$HOME/calls"
+[[ "$RUSTUP_AUTO_INSTALL" == 0 ]] || exit 2
 case "$1" in
+--version) echo 'rustup fixture' ;;
 show)
     [[ "$RUSTUP_AUTO_INSTALL" == 0 ]] || exit 2
     echo 'Default host: host' ;;
@@ -275,44 +455,78 @@ toolchain)
     fi ;;
 component)
     [[ " $* " == *" stable-host "* && ! -f "$HOME/no-stable" ]] || exit 2
-    if [[ "$2" == list ]]; then cat "$HOME/components"
-    else printf '%s\\n' "${@: -1}" >> "$HOME/components"; fi ;;
+    if [[ "$2" == list ]]; then
+        if [[ " $* " == *" --installed "* ]]; then cat "$HOME/components"
+        else printf '%s\\n' rustfmt-host clippy-host rust-src rust-docs-host rustc-host rustc-dev-host; fi
+    elif [[ ! -f "$HOME/silent-add" ]]; then
+        printf '%s\\n' "${@: -1}" >> "$HOME/components"
+    fi ;;
+target)
+    [[ " $* " == *" stable-host "* ]] || exit 2
+    if [[ "$2" == list ]]; then
+        if [[ " $* " == *" --installed "* ]]; then cat "$HOME/targets"
+        else printf '%s\\n' 'host (installed)' wasm32-unknown-unknown; fi
+    elif [[ ! -f "$HOME/silent-add" ]]; then
+        printf '%s\\n' "${@: -1}" >> "$HOME/targets"
+    fi ;;
+update)
+    [[ "$*" == 'update stable-host --no-self-update' ]] || exit 2
+    [[ ! -f "$HOME/update-failure" ]] || exit 9
+    if [[ ! -f "$HOME/stale-update" ]]; then touch "$HOME/updated"; fi ;;
 default) echo 'must preserve default' >&2; exit 1 ;;
 run)
     [[ "$2" == stable-host ]] || exit 2
-    if [[ "${@: -1}" == --version ]]; then echo "$3 fixture"
+    if [[ "${@: -1}" == --version ]]; then
+        if [[ "$3" == rustfmt && -f "$HOME/version-failure" ]]; then echo 'fixture version failure' >&2; exit 7; fi
+        if [[ "$3" == rustfmt ]]; then grep -Eq '^rustfmt(-host)?$' "$HOME/components" || exit 3; fi
+        if [[ " $* " == *" clippy "* ]]; then grep -Eq '^clippy(-host)?$' "$HOME/components" || exit 3; fi
+        echo "$3 fixture"
     elif [[ -f "$HOME/fail" ]]; then echo 'fixture linker missing' >&2; exit 1
     else
         printf '#!/usr/bin/env bash\\necho rust-ready\\n' > "${@: -1}"
         chmod +x "${@: -1}"
     fi ;;
 check)
-    echo 'stable-host - Update available : 1.98 -> 1.99'
+    [[ ! -f "$HOME/check-failure" ]] || exit 8
+    if [[ -f "$HOME/updated" ]]; then echo 'stable-host - Up to date : 1.99.1'
+    else echo 'stable-host - Update available : 1.98.0 -> 1.99.1'; fi
     echo 'rustup - Up to date : 1.29' ;;
 *) exit 2 ;;
 esac
 """, encoding="utf-8")
-            env = {**os.environ, "TEST_HOME": str(root), "NO_COLOR": "1"}
-            setup = """
+            env = {
+                **os.environ, "TEST_HOME": str(root), "NO_COLOR": "1",
+                "REAL_CONFIG": str(ROOT / "src" / "config.sh"),
+                "DEVSETUP_CONFIG_FILE": str(root / "config.json"),
+            }
+            env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+            (root / "python3").write_text('#!/usr/bin/env bash\nexec python "$@"\n')
+            bash_setup = """
 if command -v cygpath >/dev/null 2>&1; then
     export HOME="$(cygpath -u "$TEST_HOME")"
+    export REAL_CONFIG="$(cygpath -u "$REAL_CONFIG")"
+    export DEVSETUP_CONFIG_FILE="$(cygpath -u "$DEVSETUP_CONFIG_FILE")"
 else
     export HOME="$TEST_HOME"
 fi
 export PATH="$HOME:$PATH"
 uname() { echo Linux; }
 export -f uname
-chmod +x "$HOME/rustup"
-bash src/scripts/install-rust.sh "$@"
+chmod +x "$HOME/rustup" "$HOME/python3"
+bash "$FIXTURE_SCRIPT" "$@"
 """
 
-            def run(*args):
+            def run(*args, success=True, setup=False):
+                env["FIXTURE_SCRIPT"] = "setup.sh" if setup else "src/scripts/install-rust.sh"
                 result = subprocess.run(
-                    [BASH, "-c", setup, "fixture", *args], cwd=root, env=env,
-                    capture_output=True, text=True, timeout=30, check=False,
+                    [BASH, "-c", bash_setup, "fixture", *args], cwd=root, env=env,
+                    capture_output=True, text=True, timeout=120, check=False,
                 )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                return result.stdout
+                if success:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result.stdout + result.stderr
 
             original = (root / "components").read_bytes()
             audit = run("--audit", "--check-upgrades")
@@ -321,10 +535,14 @@ bash src/scripts/install-rust.sh "$@"
             self.assertIn("[update]", audit)
             self.assertIn("rustup update", audit)
             self.assertIn("update|Rust|", (root / "status.log").read_text())
+            self.assertIn("Rust rustfmt version", audit)
+            self.assertNotIn("Rust clippy version", audit)
             self.assertEqual((root / "components").read_bytes(), original)
             self.assertFalse((root / ".profile").exists())
             self.assertNotIn("component add", (root / "calls").read_text())
-            self.assertIn("compiled, linked, and ran", run())
+            applied = run()
+            self.assertIn("compiled, linked, and ran", applied)
+            self.assertIn("Rust clippy version", applied)
             before = (root / ".profile").read_bytes()
             second = run()
             self.assertNotIn("[install]", second)
@@ -338,6 +556,12 @@ bash src/scripts/install-rust.sh "$@"
             (root / "fail").touch()
             self.assertIn("native build/run failed", run())
             self.assertIn("preserved", run("--uninstall"))
+            self.exercise_component_requests(root, run, "--audit")
+            self.exercise_explicit_updates(root, run, {
+                "audit": "--audit", "upgrade": "--upgrade", "setup_upgrade": "--upgrade-rust",
+                "skip_check": "--skip-upgrade-check", "check_only": "--check-upgrades-only",
+                "uninstall": "--uninstall",
+            })
 
     def test_all_entrypoint_modes_are_wired(self):
         for name, installer in (("setup.ps1", "install-rust.ps1"), ("setup.sh", "install-rust.sh")):
@@ -347,6 +571,54 @@ bash src/scripts/install-rust.sh "$@"
         config = json.loads((ROOT / "config" / "dev-setup.config.json").read_text())
         self.assertEqual(config["advanced"]["rust"]["wingetPackageId"], "Rustlang.Rustup")
         self.assertEqual(config["advanced"]["rust"]["homebrewFormula"], "rustup")
+        self.assertEqual(config["user"]["rust"]["components"], ["rustfmt", "clippy", "rust-src"])
+        self.assertEqual(config["user"]["rust"]["targets"], [])
+        self.assertIn("-Upgrade:$UpgradeRust", (ROOT / "setup.ps1").read_text())
+        self.assertIn("--upgrade-rust) upgrade_rust=1", (ROOT / "setup.sh").read_text())
+
+    @unittest.skipUnless(BASH, "Bash is required")
+    def test_bash_list_reader_validation_and_deduplication(self):
+        readers = ["python"]
+        if shutil.which("jq"):
+            readers.append("jq")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "python3").write_text('#!/usr/bin/env bash\nexec python "$@"\n')
+            for reader in readers:
+                with self.subTest(reader=reader):
+                    env = {
+                        **os.environ, "TEST_HOME": str(root), "TEST_READER": reader,
+                        "REAL_CONFIG": str(ROOT / "src" / "config.sh"),
+                        "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
+                    }
+                    result = subprocess.run(
+                        [BASH, "-c", r"""
+set -euo pipefail
+if command -v cygpath >/dev/null 2>&1; then
+    export HOME="$(cygpath -u "$TEST_HOME")"
+    REAL_CONFIG="$(cygpath -u "$REAL_CONFIG")"
+else export HOME="$TEST_HOME"; fi
+export PATH="$HOME:$PATH"
+chmod +x "$HOME/python3"
+. "$REAL_CONFIG"
+DEVSETUP_READER="$TEST_READER"
+DEVSETUP_CONFIG_FILE="$HOME/request.json"
+printf '%s' '{"user":{"rust":{"components":["rustfmt","clippy","rustfmt"]}}}' > "$DEVSETUP_CONFIG_FILE"
+[[ "$(devsetup_config_list user.rust.components)" == $'rustfmt\nclippy' ]]
+printf '%s' '{"user":{"rust":{"components":[]}}}' > "$DEVSETUP_CONFIG_FILE"
+[[ -z "$(devsetup_config_list user.rust.components rust-src)" ]]
+printf '%s' '{"user":{"rust":{"components":null}}}' > "$DEVSETUP_CONFIG_FILE"
+[[ "$(devsetup_config_list user.rust.components rust-src)" == rust-src ]]
+for value in '"clippy"' '[42]' '[""]' '["bad\nname"]' '{}'; do
+    printf '{"user":{"rust":{"components":%s}}}' "$value" > "$DEVSETUP_CONFIG_FILE"
+    if devsetup_config_list user.rust.components; then exit 1; fi
+done
+echo 'PASS: validated list reader'
+"""],
+                        cwd=root, env=env, capture_output=True, text=True, timeout=120, check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("PASS: validated list reader", result.stdout)
 
 
 if __name__ == "__main__":

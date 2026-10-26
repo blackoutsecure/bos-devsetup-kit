@@ -19,6 +19,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 package_name="$(devsetup_config advanced.prettier.npmPackage prettier)"
 package_spec="$(devsetup_config advanced.prettier.npmPackageSpec prettier@latest)"
 global_prefix="$(devsetup_config advanced.prettier.unixGlobalPrefix "$HOME/.npm-global")"

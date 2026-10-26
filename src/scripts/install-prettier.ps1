@@ -9,6 +9,7 @@ param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 $packageName = Get-DevSetupValue $config "advanced.prettier.npmPackage" "prettier"
 $packageSpec = Get-DevSetupValue $config "advanced.prettier.npmPackageSpec" "prettier@latest"

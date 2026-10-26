@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "src\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:($Audit -or -not $Configure)
 
 if (($EnablePasswordlessSudo -or $RestartDistribution) -and -not $Configure) {
     throw "-EnablePasswordlessSudo and -RestartDistribution require -Configure and apply only to this run."

@@ -57,6 +57,25 @@ function Expand-DevSetupPath {
     return [Environment]::ExpandEnvironmentVariables($Value)
 }
 
+function Get-DevSetupStringList {
+    param($Config, [string]$Key, [string[]]$Default = @())
+
+    $node = $Config
+    foreach ($segment in $Key.Split(".")) {
+        $property = if ($null -ne $node) { $node.PSObject.Properties[$segment] } else { $null }
+        if (-not $property) { return $Default }
+        $node = $property.Value
+    }
+    if ($null -eq $node -or ($node -is [string] -and $node -eq "")) { return $Default }
+    if ($node -isnot [array]) { throw "$Key must be an array of non-empty strings." }
+    foreach ($value in $node) {
+        if ($value -isnot [string] -or -not $value.Trim() -or $value -match '[\r\n]') {
+            throw "$Key must be an array of non-empty, single-line strings."
+        }
+    }
+    $node | Select-Object -Unique
+}
+
 function ConvertTo-DevSetupHashtable {
     <# PSCustomObject from ConvertFrom-Json -> hashtable, for iteration. #>
     param($Value)
@@ -67,6 +86,38 @@ function ConvertTo-DevSetupHashtable {
         $result[$property.Name] = $property.Value
     }
     return $result
+}
+
+function Test-DevSetupElevated {
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        try {
+            $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+            return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        } finally {
+            $identity.Dispose()
+        }
+    }
+    $userId = & id -u
+    if ($LASTEXITCODE -ne 0) { throw "Cannot determine the current execution identity." }
+    return "$userId" -eq "0"
+}
+
+function Assert-DevSetupExecutionMode {
+    param([switch]$ReadOnly)
+
+    $adminMode = $env:DEVSETUP_ADMIN_MODE
+    if ($adminMode -and $adminMode -notin @("0", "1")) {
+        throw "DEVSETUP_ADMIN_MODE must be 0 (standard user, the default) or 1 (explicit admin opt-in)."
+    }
+    if (-not (Test-DevSetupElevated)) { return }
+    if ($ReadOnly) {
+        Write-DevSetupStatus warn "Execution mode" "elevated read-only inspection; run write operations from a standard, non-admin shell"
+    } elseif ($adminMode -eq "1") {
+        Write-DevSetupStatus warn "Execution mode" "explicit admin mode enabled; child processes inherit elevation; installation scope remains per-user"
+    } else {
+        throw "Run this script from a standard, non-admin shell. To explicitly permit an already-elevated shell for this run, set DEVSETUP_ADMIN_MODE=1. No automatic elevation or de-elevation is performed."
+    }
 }
 
 function Write-DevSetupStatus {
@@ -115,7 +166,7 @@ function Write-DevSetupSummary {
         ones setup.ps1 called directly. In -Audit runs, also recommends whether to
         run the real setup, lists what it would change, and gives the exact command.
     #>
-    param([string]$LogPath, [switch]$Audit)
+    param([string]$LogPath, [switch]$Audit, [string]$ApplyCommand = ".\setup.ps1")
 
     $counts = [ordered]@{ found = 0; install = 0; skip = 0; warn = 0; update = 0; remove = 0 }
     $pending = @()
@@ -185,7 +236,7 @@ function Write-DevSetupSummary {
                 Write-Host (" {0}" -f $pending[$index])
             }
             Write-Host ""
-            Write-Host "  APPLY: .\setup.ps1" -ForegroundColor Cyan
+            Write-Host "  APPLY: $ApplyCommand" -ForegroundColor Cyan
         }
         if ($counts.warn -gt 0) {
             Write-Host ""
@@ -370,7 +421,9 @@ function Install-DevSetupWingetTool {
 function Install-DevSetupPortableRuntime {
     param(
         [Parameter(Mandatory)]$Config,
-        [Parameter(Mandatory)][ValidateSet("node", "powershell", "githubCli")][string]$Tool
+        [Parameter(Mandatory)][ValidateSet("node", "powershell", "githubCli")][string]$Tool,
+        [string]$InstallDirectory,
+        $ReleaseMetadata
     )
 
     $defaultDir = switch ($Tool) {
@@ -378,7 +431,10 @@ function Install-DevSetupPortableRuntime {
         "powershell" { "%LOCALAPPDATA%\Programs\PowerShell" }
         "githubCli" { "%LOCALAPPDATA%\Programs\GitHub CLI" }
     }
-    $installDir = [IO.Path]::GetFullPath((Expand-DevSetupPath (Get-DevSetupValue $Config "advanced.$Tool.portableInstallDir" $defaultDir)))
+    if (-not $InstallDirectory) {
+        $InstallDirectory = Get-DevSetupValue $Config "advanced.$Tool.portableInstallDir" $defaultDir
+    }
+    $installDir = [IO.Path]::GetFullPath((Expand-DevSetupPath $InstallDirectory))
     $userRoot = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\') + '\'
     if (-not $installDir.StartsWith($userRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Portable $Tool must be installed below the user profile, not $installDir."
@@ -415,7 +471,7 @@ function Install-DevSetupPortableRuntime {
     } else {
         $defaultApi = if ($Tool -eq "powershell") { "https://api.github.com/repos/PowerShell/PowerShell/releases/latest" } else { "https://api.github.com/repos/cli/cli/releases/latest" }
         $releaseApi = Get-DevSetupValue $Config "advanced.$Tool.portableReleaseApiUrl" $defaultApi
-        $release = Invoke-RestMethod -Uri $releaseApi -TimeoutSec 30
+        $release = if ($ReleaseMetadata) { $ReleaseMetadata } else { Invoke-RestMethod -Uri $releaseApi -TimeoutSec 30 }
         $version = $release.tag_name -replace '^v', ''
         if ($Tool -eq "powershell") {
             $assetName = "PowerShell-$version-win-$architecture.zip"
@@ -498,7 +554,7 @@ function Uninstall-DevSetupWingetTool {
         Write-DevSetupStatus remove $Component "would uninstall user-scoped $PackageId via winget; machine installations are left alone"
         return
     }
-    & winget.exe uninstall --id $PackageId -e --scope user --accept-source-agreements
+    & winget.exe uninstall --id $PackageId -e --scope user --accept-source-agreements --silent --disable-interactivity
     if ($LASTEXITCODE -eq 0) {
         Write-DevSetupStatus remove $Component "uninstalled $PackageId via winget"
     } else {

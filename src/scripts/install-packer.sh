@@ -19,6 +19,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 # Packer left homebrew-core after its licence change; HashiCorp's tap is the maintained source.
 formula="$(devsetup_config advanced.packer.homebrewFormula hashicorp/tap/packer)"
 

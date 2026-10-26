@@ -29,6 +29,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "src\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 
 function ConvertFrom-DevSetupSecureString {

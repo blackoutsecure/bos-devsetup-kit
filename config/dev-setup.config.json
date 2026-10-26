@@ -36,6 +36,10 @@
             "allowGlobalPackageInstalls": false,
             "recommendedVirtualEnvironment": ".venv"
         },
+        "rust": {
+            "components": ["rustfmt", "clippy", "rust-src"],
+            "targets": []
+        },
         "vscode": {
             "profiles": ["stable", "insiders"],
             "settingsSync": {
@@ -110,6 +114,8 @@
                 "diffEditor.maxComputationTime": 0,
                 "editor.defaultFormatter": "esbenp.prettier-vscode",
                 "editor.formatOnSave": true,
+                "extensions.autoCheckUpdates": true,
+                "extensions.autoUpdate": true,
                 "explorer.confirmDelete": true,
                 "explorer.confirmDragAndDrop": false,
                 "explorer.confirmPasteNative": false,
@@ -176,12 +182,12 @@
                 "microsoft/markitdown": {
                     "type": "stdio",
                     "command": "uvx",
-                    "args": ["markitdown-mcp@0.0.1a4"]
+                    "args": ["markitdown-mcp@0.0.1a8"]
                 },
                 "microsoft/playwright-mcp": {
                     "type": "stdio",
                     "command": "npx",
-                    "args": ["@playwright/mcp@0.0.79"]
+                    "args": ["--yes", "@playwright/mcp@0.0.83"]
                 }
             },
             "inputs": [],

@@ -20,12 +20,20 @@ param(
     [switch]$SkipSettingsSync,
     [switch]$SkipUpgradeCheck,
     [switch]$CheckUpgradesOnly,
+    [switch]$UpgradePowerShell,
+    [switch]$UpgradeRust,
     [switch]$Uninstall,
     [switch]$Audit
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "src\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:($Audit -or ($CheckUpgradesOnly -and -not $Uninstall))
+
+if ($Uninstall -and $UpgradePowerShell) {
+    throw "-Uninstall and -UpgradePowerShell cannot be combined."
+}
+if ($Uninstall -and $UpgradeRust) { throw "-Uninstall and -UpgradeRust cannot be combined." }
 
 function Write-DevSetupSection {
     param([Parameter(Mandatory)][string]$Title)
@@ -66,6 +74,8 @@ function Write-DevSetupConfiguration {
     Write-Host "    PythonVersion   = $PythonVersion"
     Write-Host "    ConfigureVSCode = $ConfigureVSCode"
     Write-Host "    CheckUpgrades   = $CheckUpgrades"
+    Write-Host "    UpgradePowerShell = $UpgradePowerShell (explicit opt-in; read-only modes take precedence)"
+    Write-Host "    UpgradeRust     = $UpgradeRust (stable only; no rustup self-update)"
     Write-Host "    Audit           = $Audit"
     Write-Host "    Uninstall       = $Uninstall"
     Write-Host "    Config file     = $DevSetupConfigPath"
@@ -77,7 +87,14 @@ function Write-DevSetupConfiguration {
     $mcpCount = @($mcpServers.PSObject.Properties).Count
     Write-Host "    Install tools:   Git=$((Get-DevSetupValue $Config 'user.install.git' $true)), Node=$((Get-DevSetupValue $Config 'user.install.node' $true)), Prettier=$((Get-DevSetupValue $Config 'user.install.prettier' $true)), Python=$((Get-DevSetupValue $Config 'user.install.python' $true)), PHP=$((Get-DevSetupValue $Config 'user.install.php' $true))"
     Write-Host "                     GitHub CLI=$((Get-DevSetupValue $Config 'user.install.githubCli' $true))"
-    Write-Host "                     Rust=$((Get-DevSetupValue $Config 'user.install.rust' $true)) (stable, rustfmt, clippy, rust-src)"
+    $rustEnabled = Get-DevSetupValue $Config "user.install.rust" $true
+    $rustComponents = @()
+    $rustTargets = @()
+    if ($rustEnabled) {
+        $rustComponents = @(Get-DevSetupStringList $Config "user.rust.components" @("rustfmt", "clippy", "rust-src"))
+        $rustTargets = @(Get-DevSetupStringList $Config "user.rust.targets")
+    }
+    Write-Host "                     Rust=$rustEnabled (stable; components=$($rustComponents -join ','); targets=$($rustTargets -join ','))"
     Write-Host "                     PowerShell=$((Get-DevSetupValue $Config 'user.install.powershell' $true)), ShellCheck=$((Get-DevSetupValue $Config 'user.install.shellcheck' $true)), ripgrep=$((Get-DevSetupValue $Config 'user.install.ripgrep' $true)), BusyBox=$((Get-DevSetupValue $Config 'user.install.busybox' $true)), Packer=$((Get-DevSetupValue $Config 'user.install.packer' $true)), GPG=$((Get-DevSetupValue $Config 'user.install.gpg' $true))"
     Write-Host "    VS Code:         settings=$((Get-DevSetupValue $Config 'user.install.vscodeSettings' $true)), profiles=$($profiles -join ', '), extensions=$($extensions.Count) managed"
     Write-Host "    User Sync:       enabled=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.syncAfterSetup' $true)), provider=$((Get-DevSetupValue $Config 'user.vscode.settingsSync.requiredProvider' 'github')), skip=$SkipSettingsSync"
@@ -260,7 +277,7 @@ if (Get-DevSetupValue $config "user.install.python" $true) {
 }
 
 if (Get-DevSetupValue $config "user.install.rust" $true) {
-    & (Join-Path $scripts "install-rust.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades
+    & (Join-Path $scripts "install-rust.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -Upgrade:$UpgradeRust
 } else {
     Write-DevSetupStatus skip "Rust" "user.install.rust is false"
 }
@@ -272,7 +289,7 @@ if (Get-DevSetupValue $config "user.install.php" $true) {
 }
 
 if (Get-DevSetupValue $config "user.install.powershell" $true) {
-    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades | Select-Object -Last 1
+    $powerShellExe = & (Join-Path $scripts "install-powershell.ps1") -Audit:$Audit -CheckUpgrades:$checkUpgrades -Upgrade:$UpgradePowerShell | Select-Object -Last 1
 } else {
     Write-DevSetupStatus skip "PowerShell" "user.install.powershell is false"
 }
@@ -353,6 +370,9 @@ if ($Audit) {
     Write-DevSetupStatus skip "restart" "VS Code and terminal sessions remain open. If PATH or extensions need a restart, save your work and reopen VS Code or start a new terminal yourself when ready."
 }
 
-Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit
+$applyCommand = ".\setup.ps1"
+if ($UpgradePowerShell) { $applyCommand += " -UpgradePowerShell" }
+if ($UpgradeRust) { $applyCommand += " -UpgradeRust" }
+Write-DevSetupSummary -LogPath $statusLog -Audit:$Audit -ApplyCommand $applyCommand
 Remove-Item $statusLog -ErrorAction SilentlyContinue
 Remove-Item Env:\DEVSETUP_STATUS_LOG -ErrorAction SilentlyContinue

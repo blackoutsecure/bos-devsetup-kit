@@ -27,6 +27,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 python_version="$(devsetup_config user.python.version 3.14)"
 uv_install_url="$(devsetup_config advanced.python.uvInstallUrl.unix https://astral.sh/uv/install.sh)"
 

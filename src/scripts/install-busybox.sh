@@ -19,6 +19,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 if busybox_path="$(command -v busybox 2>/dev/null)"; then
 	if [[ $uninstall -eq 1 ]]; then
 		devsetup_status skip BusyBox "existing executable is not managed by this kit: $busybox_path"

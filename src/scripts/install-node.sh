@@ -24,6 +24,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 formula="$(devsetup_config advanced.node.homebrewFormula node)"
 
 if [[ $uninstall -eq 1 ]]; then
@@ -55,7 +57,7 @@ case "$os" in
 			exit 1
 		fi
 		devsetup_status install Node.js "installing '$formula' via Homebrew (live output below, may take a few minutes)"
-		NONINTERACTIVE=1 brew install "$formula" < /dev/null
+		NONINTERACTIVE=1 brew install --formula "$formula" < /dev/null
 		;;
 	MINGW*|MSYS*|CYGWIN*)
 		printf 'Node.js/npm unavailable in this shell. Run setup.cmd on Windows.\n' >&2

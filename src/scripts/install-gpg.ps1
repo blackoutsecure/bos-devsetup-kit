@@ -3,6 +3,7 @@ param([switch]$Audit, [switch]$Uninstall, [switch]$CheckUpgrades)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 $gitInstallDir = Expand-DevSetupPath (Get-DevSetupValue $config "user.git.installDir" (
     Get-DevSetupValue $config "advanced.git.defaultInstallDir" "$env:USERPROFILE\PortableGit"))

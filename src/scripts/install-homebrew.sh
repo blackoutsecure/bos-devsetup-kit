@@ -24,6 +24,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 os="$(uname -s 2>/dev/null || printf '%s' "${MSYSTEM:-Windows}")"
 
 case "$os" in

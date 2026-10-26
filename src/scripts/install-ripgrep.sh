@@ -19,6 +19,8 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
+devsetup_assert_execution_mode "$audit"
+
 formula="$(devsetup_config advanced.ripgrep.homebrewFormula ripgrep)"
 
 if [[ $uninstall -eq 1 ]]; then

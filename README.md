@@ -45,8 +45,9 @@ No administrator or root access is required by the primary setup flow. WSL is ne
   too; portable ZIP fallbacks are deliberately left in place, not recursively removed.
 - macOS and Linux bootstrap Homebrew from its source archive into `$HOME/.linuxbrew`. Homebrew
   documents this as its unsupported "untar anywhere" mode, so bottles may be unavailable and a
-  formula may need to build from source. Setup never falls back to `/opt/homebrew`,
-  `/home/linuxbrew`, `sudo`, or another system-owned prefix.
+  formula may need to build from source. Standard-user mode never writes into `/opt/homebrew`,
+  `/home/linuxbrew`, or another shared prefix. Install commands use `--formula` so a missing
+  formula cannot silently select a cask that requests an administrator password.
 - A new macOS installation still needs Xcode Command Line Tools for Git and source builds. Apple
   provides no silent no-admin installation path, so run `xcode-select --install` yourself when the
   tools are absent.
@@ -77,14 +78,61 @@ Run an audit first to see what would happen:
 ```
 
 Audit mode installs nothing, writes no files, and does not touch git config or `PATH`.
-Run setup from a normal, non-elevated account with a writable home directory. The Bash
-entrypoint rejects non-audit runs as root; do not run it with `sudo`. Existing working
+Run setup from a normal, non-elevated account with a writable home directory. All runners,
+standalone installers, and the Python applier reject elevated write runs by default. Existing working
 system-installed tools can be reused without elevation; they do not need to be reinstalled.
 
 Setup never closes or reloads VS Code, terminates existing terminal sessions, or restarts
 WSL as part of its default flow. It prints manual restart guidance in the terminal after
 applying changes. Save work and restart only when you choose. There is no persistent
 "restart automatically" configuration; the optional WSL helper has a per-run override below.
+
+### Standard-user execution and explicit admin mode
+
+The default applies to every managed application, not just PowerShell: children inherit the
+standard user's process token. No script requests UAC elevation, calls `sudo`, or silently
+retries a user-scoped installation as a machine installation. An elevated parent cannot be
+made non-admin by setting an environment variable; open a normal terminal instead.
+
+| Applications | Standard-user behavior |
+| --- | --- |
+| Git and GPG | Reuse existing tools or user-local PortableGit; Git configuration and keyrings belong to the current user. |
+| GitHub CLI, Node.js, PowerShell | User-scoped WinGet or verified user-local ZIPs on Windows; Homebrew formulas on Unix. |
+| Python and uv | User-scoped WinGet or user-local uv/CPython; project virtual environments remain the default. |
+| Rust, Cargo, rustup | Current-user toolchains, components, and `PATH`; no automatic system linker installation. |
+| PHP, ShellCheck, ripgrep, BusyBox, Packer | User-scoped WinGet; supported Unix tools use Homebrew formulas. BusyBox is only detected on Unix. |
+| Prettier and npm | User-owned npm global prefix rather than the system Node.js installation directory. |
+| Homebrew | New installations stay under the home directory; shared-prefix writes require the explicit override below. Root execution remains unsupported. |
+| VS Code, extensions, MCP servers | Current-user profiles and CLI processes; no administrator launch options are added. |
+| Dev containers and WSL | The container user remains `vscode`; WSL user changes, sudo grants, and restarts remain separate explicit operations. |
+
+Set **`DEVSETUP_ADMIN_MODE=1` for one run** only when you deliberately want to permit
+an already-elevated process, or modify a permitted shared Homebrew prefix from a non-root
+account. Unset, blank, and `0` mean standard-user mode. Other values are rejected.
+This is not saved to the kit config, VS Code settings, or the persistent user environment.
+
+For example, from the chosen PowerShell session, keep the override scoped to a child process:
+
+```powershell
+pwsh -NoProfile -Command '$env:DEVSETUP_ADMIN_MODE="1"; & .\setup.ps1'
+```
+
+On macOS/Linux:
+
+```bash
+DEVSETUP_ADMIN_MODE=1 ./setup.sh
+```
+
+The override **does not grant permissions**, start an elevated shell, widen WinGet scope,
+enable casks, or make Homebrew support root. All existing per-user destinations and safety
+checks remain in place. Running children as admin is reported explicitly when the parent
+is elevated. `-Audit`, `--audit`, `--dry-run`, and check-only modes remain read-only even in
+admin mode; combining uninstall and check-only does not make uninstall read-only.
+
+These guarantees cover processes launched by the kit. Applications opened independently
+inherit their own launcher or terminal's identity; existing OS compatibility flags and
+administrator-only hardware, hypervisor, or container-daemon operations are not changed.
+Setup never grants passwordless sudo or restarts applications as part of the override.
 
 ### Optional WSL user setup
 
@@ -225,11 +273,15 @@ Code to discourage global package installs.
 | `-PythonVersion <x.y>`  | `setup.ps1`                           | Override `user.python.version` for one run.                                                              |
 | `-SkipUpgradeCheck`     | `setup.ps1` / `--skip-upgrade-check`  | Skip the upgrade check for one run (it runs by default).                                                 |
 | `-CheckUpgradesOnly`    | `setup.ps1` / `--check-upgrades-only` | Only check for newer versions; installs and applies nothing.                                             |
+| `-UpgradePowerShell`    | `setup.ps1` / `--upgrade-powershell`  | Explicitly upgrade PowerShell 7 to the latest stable release. Combine with audit to preview.             |
+| `-UpgradeRust`          | `setup.ps1` / `--upgrade-rust`        | Update only the host's stable Rust toolchain and installed components/targets; audit previews it.        |
 | `-Uninstall`            | `setup.ps1` / `--uninstall`           | Remove tools this kit manages (winget/Homebrew). Combine with `-Audit` to preview. Git is never removed. |
 
 Upgrade checks run by default (`user.checkUpgrades`, default `true`) alongside every audit, install, or
 run-through, reporting newer versions with a new `[update]` tag and, where the package manager exposes
-it, the installed and latest versions. They never apply upgrades automatically.
+it, the installed and latest versions. They never apply upgrades automatically;
+PowerShell upgrades require `-UpgradePowerShell` / `--upgrade-powershell`, and stable Rust
+updates require `-UpgradeRust` / `--upgrade-rust`.
 `-CheckUpgradesOnly` runs just that check without installing or changing anything. `-Uninstall` removes
 Node.js, Prettier, Python, PHP, PowerShell, ShellCheck, ripgrep, and Packer via the same package manager that installed them (winget or npm
 on Windows, Homebrew or npm on macOS/Linux). BusyBox is removed only on Windows, where the kit
@@ -349,7 +401,7 @@ These are the supported knobs for routine use. They are safe to edit in a fork o
 | `user.vscode.copilot.autoAcceptDelay`       | `1`                                                                                                                                                                                  | Automatically Keep pending Copilot edits after this many seconds (`0` disables; supported range `0`-`100`). Does not grant tool approvals.                                        |
 | `user.vscode.settings`                      | curated set, see below                                                                                                                                                               | Settings merged verbatim into `settings.json`. Wins over everything else.                                                                                                         |
 | `user.vscode.extensions.manage`             | `true`                                                                                                                                                                               | Install/report extensions at all.                                                                                                                                                 |
-| `user.vscode.extensions.install`            | 19 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                                                                        |
+| `user.vscode.extensions.install`            | 22 extensions                                                                                                                                                                        | Installed if missing, via the VS Code CLI.                                                                                                                                        |
 | `user.vscode.extensions.block`              | 11 extensions                                                                                                                                                                        | Never installed. Reported as `[warn]` if already present.                                                                                                                         |
 | `user.vscode.extensions.uninstallBlocked`   | `true`                                                                                                                                                                               | Remove blocked extensions that are installed instead of just reporting them.                                                                                                      |
 | `user.mcp.manage`                           | `true`                                                                                                                                                                               | Reconcile MCP servers at all.                                                                                                                                                     |
@@ -451,11 +503,60 @@ without installing Visual Studio or changing the default host;
 macOS/Linux use Homebrew (`advanced.rust.homebrewFormula`, including its keg-only path).
 Existing rustup installations and `CARGO_HOME` are detected even when Cargo is not on PATH.
 Setup resolves rustup's configured default host and provisions that host's **stable**,
-`rustfmt`, `clippy`, and `rust-src`, checks `rustc` and Cargo,
+with `rustfmt`, `clippy`, and `rust-src` by default, checks `rustc` and Cargo,
 and preserves an existing default toolchain and repository toolchain pins.
 Missing components are repaired; existing toolchains are not automatically upgraded.
-Upgrade-check mode includes available `rustup check` updates in the setup summary;
-update deliberately with `rustup update` when ready.
+`user.rust.components` is a deduplicated array of rustup component names; `user.rust.targets`
+is an optional array of cross-compilation targets, empty by default. For example:
+
+```json
+{
+    "rust": {
+        "components": ["rustfmt", "clippy", "rust-src", "rust-docs", "llvm-tools"],
+        "targets": ["wasm32-unknown-unknown"]
+    }
+}
+```
+
+Place these keys under `user` in the config. Missing/null entries use the defaults; an
+empty array selects no extras. Use names from `rustup component list --toolchain stable`
+and `rustup target list --toolchain stable`. The installer validates availability for the
+host's stable release, detects exact names rather than prefixes, and verifies each addition.
+Unavailable/nightly-only components fail explicitly; setup does not silently install nightly,
+remove unselected components, or force an update past unavailable components. Cross-target
+standard libraries are not a substitute for that target's linker, SDK, or framework.
+
+Installed versions are reported for rustup, rustc, Cargo, rustfmt, Clippy, and the optional
+rust-analyzer component when present. Upgrade-check mode reports installed/latest toolchain
+versions from `rustup check`; components update with their toolchain. Explicit updates:
+
+```powershell
+.\setup.ps1 -UpgradeRust -Audit
+.\setup.ps1 -UpgradeRust
+.\src\scripts\install-rust.ps1 -Upgrade
+```
+
+```bash
+./setup.sh --upgrade-rust --audit
+./setup.sh --upgrade-rust
+./src/scripts/install-rust.sh --upgrade
+```
+
+Only `stable-<configured-host>` is updated, with `--no-self-update`; rustup itself,
+other channels, pinned toolchains, and existing defaults are preserved. The stable update
+also updates its installed components and targets before reconciling configured additions.
+Update success is verified with `rustup check`. A failed or still-outdated update is an
+error, not success. Rustup-manager updates remain separate package-manager/self-update
+operations. Audit and check-only modes never update, even with the upgrade flag; explicit
+updates still check for a newer stable when routine checks are disabled.
+
+`CARGO_HOME` and `RUSTUP_HOME` are respected and reported; their defaults remain `~/.cargo`
+and `~/.rustup`. The same standard-user/admin-opt-in policy covers rustup, Cargo, compiler
+probes, components, and targets. Setup never retries permission failures with elevation,
+changes ownership, or updates a system-managed rustup binary. Automatic provisioning of
+project-pinned toolchains is disabled during inspection. Framework crates such as Tokio,
+Axum, Bevy, and Tauri remain project dependencies managed by the project's Cargo manifests,
+not global rustup components or silently installed CLI tools.
 
 A normal run compiles, links, and executes a tiny temporary native program, then removes it.
 Audit never compiles or changes PATH; it reports planned PATH/profile changes and
@@ -530,6 +631,12 @@ while Pylance and mypy do type analysis. Preview tools such as `typescriptteam.n
 belong in an experimental profile rather than the portable baseline. Optional does not mean
 blocked; the kit preserves installed tools that are not on its explicit block list.
 
+For Cargo manifests, rustup configuration, and Python project configuration, the optional
+[`tamasfe.even-better-toml`](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
+extension supplies TOML validation and formatting. Its publisher labels it preview, so it is
+not silently added to every machine. Keep the existing Rust formatter override rather than
+adding a second Rust formatter or debugger when the installed tools already cover those needs.
+
 Publisher references: [Python Environments](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs),
 [ShellCheck](https://marketplace.visualstudio.com/items?itemName=timonwong.shellcheck), and
 [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
@@ -561,6 +668,27 @@ Extension management needs the matching VS Code CLI (`code` or `code-insiders`).
 Linux the kit also checks `advanced.vscode.extensionCliFallbackPaths` when the CLI is not on
 `PATH`. Profiles whose CLI is missing are reported as `[skip]` and everything else still runs.
 
+#### Extension updates
+
+The baseline explicitly enables `extensions.autoCheckUpdates` and `extensions.autoUpdate`.
+Override either key under `user.vscode.settings` when a project needs a different policy.
+The setup applier installs missing recommendations and validates their presence; it does
+not force-reinstall every existing extension on every run.
+
+To update extensions already installed in each local VS Code edition, use:
+
+```powershell
+code --update-extensions
+code-insiders --update-extensions
+```
+
+Use the same commands from Bash on macOS/Linux. Each CLI selects updates compatible with
+its VS Code version and existing release-channel policy; setup does not opt extensions
+into prerelease channels. These commands preserve unrelated installed extensions and do
+not restart VS Code. An updated extension may need a manual window reload before the
+running extension host uses its new version. Check `--list-extensions --show-versions`
+afterward rather than interpreting an unchanged version as a failed upgrade.
+
 ### MCP servers
 
 `user.mcp.servers` is merged into each profile's `mcp.json` and into the Copilot user-level
@@ -574,6 +702,14 @@ runtimes. GitHub requires authentication; the other defaults do not:
 | `microsoftdocs/mcp`                  | http          | Microsoft/Azure documentation lookup. No auth.            |
 | `microsoft/markitdown`               | stdio (`uvx`) | Converts PDFs/Office docs to Markdown. Language-agnostic. |
 | `microsoft/playwright-mcp`           | stdio (`npx`) | Browser automation for front-end work.                    |
+
+The local launchers are pinned to `markitdown-mcp@0.0.1a8` and
+`@playwright/mcp@0.0.83`. MarkItDown remains on its existing alpha release channel.
+`uvx` and `npx` resolve these versions in user-owned caches; Python/Node.js and the
+launchers must be available. No server needs administrator rights merely to start.
+The pinned npm launcher includes `--yes` so a first-time package download cannot wait
+for an interactive npm prompt; this does not approve MCP trust or tool permissions.
+The kit does not install Playwright browsers globally or grant a server additional trust.
 
 Servers that are **not** shipped as defaults, and why:
 
@@ -608,6 +744,56 @@ portable config locally for the Copilot harness and Copilot CLI; it does not cre
 push user data, or store credentials. If you want this user-level config on other machines, use a
 private repository or another secure sync method that you manage, and keep secret values in
 environment variables rather than the tracked file.
+
+#### MCP and agent plugin support review
+
+Run the dedicated read-only inventory without applying unrelated setup settings:
+
+```powershell
+python .\src\configure-vscode.py --support-audit
+```
+
+Use `python3 src/configure-vscode.py --support-audit` on macOS/Linux. It reviews configured
+MCP definitions in existing VS Code profiles and Copilot's separate user config, reports
+missing launchers and differences from the kit baseline, and lists installed/enabled
+plugins through `copilot plugin list --json` when that CLI is available. Configured is not
+the same as running: the audit never starts an MCP server, sends a tool request, tests a
+tenant login, updates packages/plugins, changes trust, or restarts an application.
+URLs, headers, environment values, and plugin source details are not included in its output.
+CLI failures and malformed inventories are reported explicitly; an absent CLI is skipped.
+Installed plugins whose named marketplace is no longer registered are flagged as possible
+update blockers without re-registering or trusting a source automatically.
+
+Existing MCP definitions remain add-only. A new kit pin does not silently rewrite an existing
+server's locally selected package or arguments. Review the reported difference, back up the
+owning host's configuration, and change only the intended version argument. Preserve headers,
+environment variables, tool restrictions, authentication, and unrelated servers.
+
+VS Code's Agent Customizations editor and Copilot's `/plugin`/CLI management can have
+separate plugin inventories. Use the manager that installed a plugin:
+
+```powershell
+copilot plugin list --json
+copilot plugin marketplace list
+copilot plugin update <plugin>@<marketplace>
+```
+
+Update named, already-reviewed plugins rather than enabling all marketplace entries.
+If the original marketplace is no longer registered, restore its reviewed source before
+updating; do not replace it with an unverified similarly named marketplace. A disabled
+bundled plugin stays disabled. The `agentPlugins` directories contain generated/synced
+snapshots, not a reliable count of installed plugins; never hand-edit or delete them to
+force an update. The [official plugin management guide](https://code.visualstudio.com/docs/agent-customization/agent-plugins)
+explains the separate inventories and supported update controls. The kit's extension
+auto-update setting also lets VS Code check provider-managed Git-source plugins; npm/PyPI
+plugin updates still require host confirmation.
+
+Keep only one overlapping GitHub/Azure provider active per host where practical, but do not
+delete a user configuration just because another host or extension supplies similar tools.
+Docker-backed servers additionally require a working daemon; .NET MCP servers require their
+configured `dnx` launcher/SDK. WorkIQ, Azure, Enterprise, Sentinel, and other account-specific
+plugins/servers remain workload opt-ins, not new universal defaults. Authentication and tenant
+entitlements must be verified in the owning client, not inferred from a successful file audit.
 
 #### GitHub MCP and your GitHub-synced profile
 
@@ -697,6 +883,7 @@ Config values may contain environment placeholders, expanded at read time:
 
 ```powershell
 . (Join-Path $PSScriptRoot "..\config.ps1")
+Assert-DevSetupExecutionMode -ReadOnly:$Audit
 $config = Get-DevSetupConfig
 $version = Get-DevSetupValue $config "user.python.version" "3.14"
 ```
@@ -716,6 +903,7 @@ $version = Get-DevSetupValue $config "user.python.version" "3.14"
 
 ```bash
 . "$(dirname "$0")/../config.sh"
+devsetup_assert_execution_mode "$audit"
 version="$(devsetup_config user.python.version 3.14)"
 ```
 
@@ -817,16 +1005,50 @@ path is machine-local and explicitly excluded from Settings Sync.
 ### PowerShell
 
 ```powershell
-.\src\scripts\install-powershell.ps1 [-Audit]
+.\src\scripts\install-powershell.ps1 [-Audit] [-CheckUpgrades] [-Upgrade]
 ```
 
 ```bash
-./src/scripts/install-powershell.sh [--print-path] [--audit]
+./src/scripts/install-powershell.sh [--print-path] [--audit] [--check-upgrades] [--upgrade]
 ```
 
 macOS/Linux use Homebrew and Windows uses WinGet to install PowerShell 7 when it is missing. The
 resolved `pwsh` path is written to `powershell.powerShellAdditionalExePaths`, restoring discovery
 for the VS Code PowerShell extension. The path is machine-local and excluded from Settings Sync.
+
+PowerShell detection reads the installed executable's version, not the version of the shell
+running setup. Upgrade checks query the official latest stable release and compare numeric
+versions, including multi-digit patch numbers. Stable releases replace same-version previews;
+newer installations are never downgraded. Windows PowerShell 5.1 is left alone.
+
+```powershell
+.\setup.ps1 -UpgradePowerShell -Audit
+.\setup.ps1 -UpgradePowerShell
+```
+
+```bash
+./setup.sh --upgrade-powershell --audit
+./setup.sh --upgrade-powershell
+```
+
+On Windows, explicit upgrades use the existing official SHA256-verified ZIP installer in
+`advanced.powershell.portableInstallDir/<version>`. Existing system and portable installations
+are preserved, including a currently running `pwsh`. Detection selects the newest executable
+from `PATH` and these managed directories on subsequent runs. Setup configures VS Code with
+that path. A system `pwsh` may still take precedence in a new terminal's `PATH`; use the returned
+executable path when needed. No shell, terminal, or editor is restarted automatically.
+
+On macOS/Linux, upgrades are limited to a formula managed by Homebrew under the user's home
+directory. System-owned Homebrew prefixes, casks requiring installers, and unmanaged copies
+are not modified. A failed upgrade or a package-manager version behind the stable release is
+reported as an error, not success. `--print-path` continues to emit only the executable path
+on stdout; diagnostics go to stderr.
+
+Audits never install or upgrade, and `-CheckUpgradesOnly` / `--check-upgrades-only` remains
+read-only even when combined with the upgrade option. Explicit upgrade requests check the
+latest release even when routine upgrade checks are disabled. Release lookup failures produce
+a warning for checks and fail explicit upgrade requests. Uninstall and upgrade cannot be
+combined, and `user.install.powershell: false` still disables the entire step.
 
 ### VS Code settings
 
@@ -985,7 +1207,8 @@ Settings Sync itself must still be enabled once from VS Code's Accounts menu —
 Binaries, `PATH` entries, credentials, and git identity stay machine-local and are never uploaded.
 `advanced.node.portableBaseUrl` / `portableInstallDir` and
 `advanced.powershell.portableReleaseApiUrl` / `portableInstallDir` control the Windows ZIP
-fallbacks. Keep sources official and destinations under the user's profile. Node chooses
+fallbacks. The PowerShell release endpoint also supplies stable-version checks on every platform.
+Keep sources official and destinations under the user's profile. Node chooses
 the current LTS, not an obsolete release to accommodate an unsupported architecture;
 PowerShell requires the release asset's SHA256 digest. Downloads have finite timeouts and
 checksum failures leave no installation behind. These fallbacks do not enable automatic
