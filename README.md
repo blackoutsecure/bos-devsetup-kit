@@ -1,5 +1,9 @@
 # Blackout Secure Dev Setup Kit
 
+Source: [blackoutsecure/devsetup-kit](https://github.com/blackoutsecure/devsetup-kit).
+The repository rename does not change installed paths, shell-profile markers,
+tool configuration or the existing setup/audit commands.
+
 [![Made by BlackoutSecure](https://img.shields.io/badge/made%20by-BlackoutSecure-1f1f1f)](https://github.com/blackoutsecure)
 
 Cross-platform developer environment setup for machines **without local admin rights**.
